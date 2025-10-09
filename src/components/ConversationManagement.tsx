@@ -16,6 +16,7 @@ import { CalendarIcon, Plus, Edit, Trash2, Eye, Filter } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
+import DeleteConfirmationDialog from "./DeleteConfirmationDialog";
 
 interface VocabularyWord {
   id: string;
@@ -129,6 +130,10 @@ const ConversationManagement = () => {
   const [dateFilter, setDateFilter] = useState<Date | undefined>();
   const [userFilter, setUserFilter] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    onConfirm: () => void;
+  }>({ isOpen: false, onConfirm: () => {} });
   const { toast } = useToast();
 
   const levels = ["A1", "A2", "B1", "B2", "C1", "C2"];
@@ -168,8 +173,13 @@ const ConversationManagement = () => {
   };
 
   const handleDeleteTopic = (id: string) => {
-    setTopics(topics.filter(t => t.id !== id));
-    toast({ title: "Tema eliminado", description: "El tema ha sido eliminado correctamente." });
+    setDeleteDialog({
+      isOpen: true,
+      onConfirm: () => {
+        setTopics(topics.filter(t => t.id !== id));
+        toast({ title: "Tema eliminado", description: "El tema ha sido eliminado correctamente." });
+      },
+    });
   };
 
   const handleToggleTopicStatus = (id: string) => {
@@ -604,6 +614,12 @@ const ConversationManagement = () => {
           )}
         </DialogContent>
       </Dialog>
+      
+      <DeleteConfirmationDialog
+        isOpen={deleteDialog.isOpen}
+        onClose={() => setDeleteDialog({ ...deleteDialog, isOpen: false })}
+        onConfirm={deleteDialog.onConfirm}
+      />
     </div>
   );
 };

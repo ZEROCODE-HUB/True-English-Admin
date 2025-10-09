@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table";
 import LessonFormModal from "./LessonFormModal";
 import LessonDetailView from "./LessonDetailView";
+import DeleteConfirmationDialog from "./DeleteConfirmationDialog";
 import { useToast } from "@/hooks/use-toast";
 
 export interface Lesson {
@@ -125,6 +126,10 @@ export default function CourseManagement() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    onConfirm: () => void;
+  }>({ isOpen: false, onConfirm: () => {} });
   const { toast } = useToast();
 
   const filteredLessons = lessons.filter(lesson => {
@@ -149,10 +154,15 @@ export default function CourseManagement() {
   };
 
   const handleDeleteLesson = (lessonId: string) => {
-    setLessons(lessons.filter(l => l.id !== lessonId));
-    toast({
-      title: "Lección eliminada",
-      description: "La lección ha sido eliminada correctamente.",
+    setDeleteDialog({
+      isOpen: true,
+      onConfirm: () => {
+        setLessons(lessons.filter(l => l.id !== lessonId));
+        toast({
+          title: "Lección eliminada",
+          description: "La lección ha sido eliminada correctamente.",
+        });
+      },
     });
   };
 
@@ -322,6 +332,12 @@ export default function CourseManagement() {
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveLesson}
         lesson={editingLesson}
+      />
+      
+      <DeleteConfirmationDialog
+        isOpen={deleteDialog.isOpen}
+        onClose={() => setDeleteDialog({ ...deleteDialog, isOpen: false })}
+        onConfirm={deleteDialog.onConfirm}
       />
     </div>
   );

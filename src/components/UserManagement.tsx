@@ -34,6 +34,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import UserFormModal from "./UserFormModal";
+import DeleteConfirmationDialog from "./DeleteConfirmationDialog";
 import { useToast } from "@/hooks/use-toast";
 
 export interface User {
@@ -127,6 +128,10 @@ export default function UserManagement() {
   const [inviteCode, setInviteCode] = useState("");
   const [resendConfirmOpen, setResendConfirmOpen] = useState(false);
   const [selectedInvitationId, setSelectedInvitationId] = useState<string | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    onConfirm: () => void;
+  }>({ isOpen: false, onConfirm: () => {} });
   const { toast } = useToast();
 
   const filteredUsers = users.filter(user => {
@@ -152,10 +157,15 @@ export default function UserManagement() {
   };
 
   const handleDeleteUser = (userId: string) => {
-    setUsers(users.filter(u => u.id !== userId));
-    toast({
-      title: "Usuario eliminado",
-      description: "El usuario ha sido eliminado correctamente.",
+    setDeleteDialog({
+      isOpen: true,
+      onConfirm: () => {
+        setUsers(users.filter(u => u.id !== userId));
+        toast({
+          title: "Usuario eliminado",
+          description: "El usuario ha sido eliminado correctamente.",
+        });
+      },
     });
   };
 
@@ -251,10 +261,15 @@ export default function UserManagement() {
   };
 
   const handleDeleteInvitation = (invitationId: string) => {
-    setPendingInvitations(pendingInvitations.filter(inv => inv.id !== invitationId));
-    toast({
-      title: "Invitación eliminada",
-      description: "La invitación ha sido eliminada.",
+    setDeleteDialog({
+      isOpen: true,
+      onConfirm: () => {
+        setPendingInvitations(pendingInvitations.filter(inv => inv.id !== invitationId));
+        toast({
+          title: "Invitación eliminada",
+          description: "La invitación ha sido eliminada.",
+        });
+      },
     });
   };
 
@@ -534,6 +549,12 @@ export default function UserManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      <DeleteConfirmationDialog
+        isOpen={deleteDialog.isOpen}
+        onClose={() => setDeleteDialog({ ...deleteDialog, isOpen: false })}
+        onConfirm={deleteDialog.onConfirm}
+      />
     </div>
   );
 }

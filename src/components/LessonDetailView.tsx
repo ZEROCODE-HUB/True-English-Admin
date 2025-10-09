@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import type { Lesson, Note, Exercise, ExerciseOption } from "./CourseManagement";
 import ReactQuill from 'react-quill';
+import DeleteConfirmationDialog from "./DeleteConfirmationDialog";
 import { useToast } from "@/hooks/use-toast";
 
 interface LessonDetailViewProps {
@@ -47,6 +48,10 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
   const [isExerciseModalOpen, setIsExerciseModalOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    onConfirm: () => void;
+  }>({ isOpen: false, onConfirm: () => {} });
   const { toast } = useToast();
 
   const [noteForm, setNoteForm] = useState({
@@ -129,16 +134,21 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
   };
 
   const handleDeleteNote = (noteId: string) => {
-    const updatedLesson = {
-      ...currentLesson,
-      notas: currentLesson.notas.filter(note => note.id !== noteId)
-    };
-    setCurrentLesson(updatedLesson);
-    onUpdate(updatedLesson);
-    
-    toast({
-      title: "Nota eliminada",
-      description: "La nota ha sido eliminada correctamente.",
+    setDeleteDialog({
+      isOpen: true,
+      onConfirm: () => {
+        const updatedLesson = {
+          ...currentLesson,
+          notas: currentLesson.notas.filter(note => note.id !== noteId)
+        };
+        setCurrentLesson(updatedLesson);
+        onUpdate(updatedLesson);
+        
+        toast({
+          title: "Nota eliminada",
+          description: "La nota ha sido eliminada correctamente.",
+        });
+      },
     });
   };
 
@@ -244,16 +254,21 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
   };
 
   const handleDeleteExercise = (exerciseId: string) => {
-    const updatedLesson = {
-      ...currentLesson,
-      ejercicios: currentLesson.ejercicios.filter(exercise => exercise.id !== exerciseId)
-    };
-    setCurrentLesson(updatedLesson);
-    onUpdate(updatedLesson);
-    
-    toast({
-      title: "Ejercicio eliminado",
-      description: "El ejercicio ha sido eliminado correctamente.",
+    setDeleteDialog({
+      isOpen: true,
+      onConfirm: () => {
+        const updatedLesson = {
+          ...currentLesson,
+          ejercicios: currentLesson.ejercicios.filter(exercise => exercise.id !== exerciseId)
+        };
+        setCurrentLesson(updatedLesson);
+        onUpdate(updatedLesson);
+        
+        toast({
+          title: "Ejercicio eliminado",
+          description: "El ejercicio ha sido eliminado correctamente.",
+        });
+      },
     });
   };
 
@@ -636,6 +651,12 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
           </div>
         </DialogContent>
       </Dialog>
+      
+      <DeleteConfirmationDialog
+        isOpen={deleteDialog.isOpen}
+        onClose={() => setDeleteDialog({ ...deleteDialog, isOpen: false })}
+        onConfirm={deleteDialog.onConfirm}
+      />
     </div>
   );
 }

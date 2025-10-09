@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Edit, Trash2, Search, ToggleLeft, ToggleRight } from "lucide-react";
+import { Plus, Edit, Trash2, Search, ToggleLeft, ToggleRight, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import OnboardingQuizModal from "./OnboardingQuizModal";
 import LessonQuizModal from "./LessonQuizModal";
+import DeleteConfirmationDialog from "./DeleteConfirmationDialog";
 import { useToast } from "@/hooks/use-toast";
 export interface OnboardingQuestion {
   id: string;
@@ -42,6 +43,26 @@ export interface LessonQuestion {
   lessonTitle: string;
   tipo: "quizz-leccion" | "desafio-semanal";
   pregunta: string;
+  opciones: string[];
+  respuestaCorrecta: number;
+  activa: boolean;
+}
+
+export interface Challenge {
+  id: string;
+  titulo: string;
+  nivel: "A1" | "A2" | "B1" | "B2" | "C1" | "C2";
+  lessonId: string;
+  lessonTitle: string;
+  activo: boolean;
+}
+
+export interface ChallengeQuestion {
+  id: string;
+  challengeId: string;
+  pregunta: string;
+  imagen?: string;
+  audio?: string;
   opciones: string[];
   respuestaCorrecta: number;
   activa: boolean;
@@ -175,10 +196,60 @@ const mockLessonQuestions: LessonQuestion[] = [{
   respuestaCorrecta: 1,
   activa: true
 }];
+
+const mockChallenges: Challenge[] = [
+  {
+    id: "1",
+    titulo: "Desafío de Verbos Irregulares",
+    nivel: "A2",
+    lessonId: "2",
+    lessonTitle: "Past Continuous",
+    activo: true
+  },
+  {
+    id: "2",
+    titulo: "Desafío de Condicionales",
+    nivel: "B2",
+    lessonId: "4",
+    lessonTitle: "Conditionals",
+    activo: false
+  }
+];
+
+const mockChallengeQuestions: ChallengeQuestion[] = [
+  {
+    id: "1",
+    challengeId: "1",
+    pregunta: "What is the past tense of 'go'?",
+    opciones: ["goed", "went", "gone", "going"],
+    respuestaCorrecta: 2,
+    activa: true
+  },
+  {
+    id: "2",
+    challengeId: "1",
+    pregunta: "Select the correct past form: 'eat'",
+    imagen: "https://example.com/eat.jpg",
+    opciones: ["eated", "ate", "eaten", "eating"],
+    respuestaCorrecta: 2,
+    activa: true
+  },
+  {
+    id: "3",
+    challengeId: "2",
+    pregunta: "Complete: If I ___ rich, I would travel the world",
+    audio: "https://example.com/audio.mp3",
+    opciones: ["am", "was", "were", "would be"],
+    respuestaCorrecta: 3,
+    activa: false
+  }
+];
 export default function QuizManagement() {
   const [onboardingQuestions, setOnboardingQuestions] = useState<OnboardingQuestion[]>(mockOnboardingQuestions);
   const [levelQuestions, setLevelQuestions] = useState<LevelQuestion[]>(mockLevelQuestions);
   const [lessonQuestions, setLessonQuestions] = useState<LessonQuestion[]>(mockLessonQuestions);
+  const [challenges, setChallenges] = useState<Challenge[]>(mockChallenges);
+  const [challengeQuestions, setChallengeQuestions] = useState<ChallengeQuestion[]>(mockChallengeQuestions);
   const [lessons] = useState<Lesson[]>(mockLessons);
 
   // Level selection state
@@ -188,12 +259,30 @@ export default function QuizManagement() {
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
   const [lessonSearchTerm, setLessonSearchTerm] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
+  
+  // Challenge state
+  const [selectedChallenge, setSelectedChallenge] = useState<Challenge | null>(null);
+  const [challengeSearchTerm, setChallengeSearchTerm] = useState("");
+  const [challengeLevelFilter, setChallengeLevelFilter] = useState("all");
+  
   const [isOnboardingModalOpen, setIsOnboardingModalOpen] = useState(false);
   const [isLevelModalOpen, setIsLevelModalOpen] = useState(false);
   const [isLessonModalOpen, setIsLessonModalOpen] = useState(false);
   const [editingOnboardingQuestion, setEditingOnboardingQuestion] = useState<OnboardingQuestion | null>(null);
   const [editingLevelQuestion, setEditingLevelQuestion] = useState<LevelQuestion | null>(null);
   const [editingLessonQuestion, setEditingLessonQuestion] = useState<LessonQuestion | null>(null);
+  
+  // Delete confirmation dialog state
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    onConfirm: () => void;
+    title?: string;
+    description?: string;
+  }>({
+    isOpen: false,
+    onConfirm: () => {},
+  });
+  
   const {
     toast
   } = useToast();
@@ -202,8 +291,16 @@ export default function QuizManagement() {
     const matchesLevel = levelFilter === "all" || lesson.nivel === levelFilter;
     return matchesSearch && matchesLevel;
   });
+  
+  const filteredChallenges = challenges.filter(challenge => {
+    const matchesSearch = challenge.titulo.toLowerCase().includes(challengeSearchTerm.toLowerCase());
+    const matchesLevel = challengeLevelFilter === "all" || challenge.nivel === challengeLevelFilter;
+    return matchesSearch && matchesLevel;
+  });
+  
   const selectedLessonQuestions = selectedLesson ? lessonQuestions.filter(q => q.lessonId === selectedLesson.id) : [];
   const selectedLevelQuestions = selectedLevel ? levelQuestions.filter(q => q.nivel === selectedLevel) : [];
+  const selectedChallengeQuestions = selectedChallenge ? challengeQuestions.filter(q => q.challengeId === selectedChallenge.id) : [];
   const quizLeccionQuestions = selectedLessonQuestions.filter(q => q.tipo === "quizz-leccion");
   const desafioQuestions = selectedLessonQuestions.filter(q => q.tipo === "desafio-semanal");
   const levels: Array<"A1" | "A2" | "B1" | "B2" | "C1" | "C2"> = ["A1", "A2", "B1", "B2", "C1", "C2"];
@@ -237,25 +334,92 @@ export default function QuizManagement() {
       description: "El estado de la pregunta ha sido actualizado."
     });
   };
+  
+  const handleToggleChallenge = (challengeId: string) => {
+    setChallenges(prev => prev.map(c => c.id === challengeId ? {
+      ...c,
+      activo: !c.activo
+    } : c));
+    toast({
+      title: "Estado actualizado",
+      description: "El estado del desafío ha sido actualizado."
+    });
+  };
+  
+  const handleToggleChallengeQuestion = (questionId: string) => {
+    setChallengeQuestions(prev => prev.map(q => q.id === questionId ? {
+      ...q,
+      activa: !q.activa
+    } : q));
+    toast({
+      title: "Estado actualizado",
+      description: "El estado de la pregunta ha sido actualizado."
+    });
+  };
+  
   const handleDeleteOnboardingQuestion = (questionId: string) => {
-    setOnboardingQuestions(prev => prev.filter(q => q.id !== questionId));
-    toast({
-      title: "Pregunta eliminada",
-      description: "La pregunta ha sido eliminada correctamente."
+    setDeleteDialog({
+      isOpen: true,
+      onConfirm: () => {
+        setOnboardingQuestions(prev => prev.filter(q => q.id !== questionId));
+        toast({
+          title: "Pregunta eliminada",
+          description: "La pregunta ha sido eliminada correctamente."
+        });
+      },
     });
   };
+  
   const handleDeleteLevelQuestion = (questionId: string) => {
-    setLevelQuestions(prev => prev.filter(q => q.id !== questionId));
-    toast({
-      title: "Pregunta eliminada",
-      description: "La pregunta ha sido eliminada correctamente."
+    setDeleteDialog({
+      isOpen: true,
+      onConfirm: () => {
+        setLevelQuestions(prev => prev.filter(q => q.id !== questionId));
+        toast({
+          title: "Pregunta eliminada",
+          description: "La pregunta ha sido eliminada correctamente."
+        });
+      },
     });
   };
+  
   const handleDeleteLessonQuestion = (questionId: string) => {
-    setLessonQuestions(prev => prev.filter(q => q.id !== questionId));
-    toast({
-      title: "Pregunta eliminada",
-      description: "La pregunta ha sido eliminada correctamente."
+    setDeleteDialog({
+      isOpen: true,
+      onConfirm: () => {
+        setLessonQuestions(prev => prev.filter(q => q.id !== questionId));
+        toast({
+          title: "Pregunta eliminada",
+          description: "La pregunta ha sido eliminada correctamente."
+        });
+      },
+    });
+  };
+  
+  const handleDeleteChallenge = (challengeId: string) => {
+    setDeleteDialog({
+      isOpen: true,
+      onConfirm: () => {
+        setChallenges(prev => prev.filter(c => c.id !== challengeId));
+        setChallengeQuestions(prev => prev.filter(q => q.challengeId !== challengeId));
+        toast({
+          title: "Desafío eliminado",
+          description: "El desafío y sus preguntas han sido eliminados correctamente."
+        });
+      },
+    });
+  };
+  
+  const handleDeleteChallengeQuestion = (questionId: string) => {
+    setDeleteDialog({
+      isOpen: true,
+      onConfirm: () => {
+        setChallengeQuestions(prev => prev.filter(q => q.id !== questionId));
+        toast({
+          title: "Pregunta eliminada",
+          description: "La pregunta ha sido eliminada correctamente."
+        });
+      },
     });
   };
   return <div className="space-y-6">
@@ -265,10 +429,11 @@ export default function QuizManagement() {
       </div>
 
       <Tabs defaultValue="onboarding" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="onboarding">Quiz de Onboarding</TabsTrigger>
           <TabsTrigger value="level">Quiz de Nivel</TabsTrigger>
           <TabsTrigger value="lessons">Quiz de Lección</TabsTrigger>
+          <TabsTrigger value="challenges">Desafío</TabsTrigger>
         </TabsList>
 
         <TabsContent value="onboarding" className="space-y-6">
@@ -555,11 +720,233 @@ export default function QuizManagement() {
                 </CardContent>
               </Card>
 
-              {/* Desafío Section */}
-              
             </>}
         </TabsContent>
+
+        <TabsContent value="challenges" className="space-y-6">
+          {!selectedChallenge ? (
+            // Step 1: Challenge List
+            <>
+              <Card className="shadow-card">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Search className="w-5 h-5" />
+                    Desafíos
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-4 mb-6">
+                    <div className="flex-1 min-w-[200px]">
+                      <Input
+                        placeholder="Buscar por nombre de desafío..."
+                        value={challengeSearchTerm}
+                        onChange={(e) => setChallengeSearchTerm(e.target.value)}
+                      />
+                    </div>
+                    <Select value={challengeLevelFilter} onValueChange={setChallengeLevelFilter}>
+                      <SelectTrigger className="w-[200px]">
+                        <SelectValue placeholder="Filtrar por nivel" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todos los niveles</SelectItem>
+                        <SelectItem value="A1">A1</SelectItem>
+                        <SelectItem value="A2">A2</SelectItem>
+                        <SelectItem value="B1">B1</SelectItem>
+                        <SelectItem value="B2">B2</SelectItem>
+                        <SelectItem value="C1">C1</SelectItem>
+                        <SelectItem value="C2">C2</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button className="bg-primary hover:bg-primary-hover">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Crear Desafío
+                    </Button>
+                  </div>
+
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Título</TableHead>
+                        <TableHead>Nivel</TableHead>
+                        <TableHead>Lección Asociada</TableHead>
+                        <TableHead>Estado</TableHead>
+                        <TableHead className="text-right">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredChallenges.map((challenge) => (
+                        <TableRow key={challenge.id}>
+                          <TableCell className="font-medium">{challenge.titulo}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{challenge.nivel}</Badge>
+                          </TableCell>
+                          <TableCell>{challenge.lessonTitle}</TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleToggleChallenge(challenge.id)}
+                              className={challenge.activo ? "text-success" : "text-muted-foreground"}
+                            >
+                              {challenge.activo ? (
+                                <ToggleRight className="w-5 h-5" />
+                              ) : (
+                                <ToggleLeft className="w-5 h-5" />
+                              )}
+                            </Button>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setSelectedChallenge(challenge)}
+                              >
+                                <Eye className="w-4 h-4 mr-1" />
+                                Ver
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDeleteChallenge(challenge.id)}
+                                className="text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {filteredChallenges.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center text-muted-foreground py-6">
+                            No se encontraron desafíos
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            // Step 2: Challenge Questions View
+            <>
+              <Card className="shadow-card">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      {selectedChallenge.titulo}
+                      <Badge variant="outline">{selectedChallenge.nivel}</Badge>
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Lección: {selectedChallenge.lessonTitle}
+                    </p>
+                  </div>
+                  <Button variant="outline" onClick={() => setSelectedChallenge(null)}>
+                    Volver a Desafíos
+                  </Button>
+                </CardHeader>
+              </Card>
+
+              <Card className="shadow-card">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle>
+                    Preguntas del Desafío ({selectedChallengeQuestions.length})
+                  </CardTitle>
+                  <Button className="bg-primary hover:bg-primary-hover">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Nueva Pregunta
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Pregunta</TableHead>
+                        <TableHead>Recursos</TableHead>
+                        <TableHead>Respuesta Correcta</TableHead>
+                        <TableHead>Estado</TableHead>
+                        <TableHead className="text-right">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedChallengeQuestions.map((question) => (
+                        <TableRow key={question.id}>
+                          <TableCell className="max-w-md">
+                            <div className="truncate">{question.pregunta}</div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              {question.imagen && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Imagen
+                                </Badge>
+                              )}
+                              {question.audio && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Audio
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">Opción {question.respuestaCorrecta}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleToggleChallengeQuestion(question.id)}
+                              className={question.activa ? "text-success" : "text-muted-foreground"}
+                            >
+                              {question.activa ? (
+                                <ToggleRight className="w-5 h-5" />
+                              ) : (
+                                <ToggleLeft className="w-5 h-5" />
+                              )}
+                            </Button>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button variant="outline" size="sm">
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDeleteChallengeQuestion(question.id)}
+                                className="text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {selectedChallengeQuestions.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center text-muted-foreground py-6">
+                            No hay preguntas para este desafío
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </TabsContent>
       </Tabs>
+
+      <DeleteConfirmationDialog
+        isOpen={deleteDialog.isOpen}
+        onClose={() => setDeleteDialog({ ...deleteDialog, isOpen: false })}
+        onConfirm={deleteDialog.onConfirm}
+        title={deleteDialog.title}
+        description={deleteDialog.description}
+      />
 
       <OnboardingQuizModal isOpen={isOnboardingModalOpen} onClose={() => setIsOnboardingModalOpen(false)} onSave={questionData => {
       if (editingOnboardingQuestion) {
