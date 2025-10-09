@@ -169,26 +169,7 @@ export default function UserFormModal({
             {errors.fechaNacimiento && <p className="text-sm text-destructive">{errors.fechaNacimiento}</p>}
           </div>
 
-          <div className="space-y-2">
-            <Label>Intereses</Label>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {interestOptions.map(interest => (
-                <div key={interest} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={interest}
-                    checked={formData.intereses.includes(interest)}
-                    onCheckedChange={(checked) => handleInterestChange(interest, checked as boolean)}
-                  />
-                  <label
-                    htmlFor={interest}
-                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                  >
-                    {interest}
-                  </label>
-                </div>
-              ))}
-            </div>
-          </div>
+          
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
@@ -229,33 +210,19 @@ export default function UserFormModal({
             </div>
           </div>
 
-          {user && user.codigoInvitacion && (
-            <div className="space-y-2">
+          {user && user.codigoInvitacion && <div className="space-y-2">
               <Label htmlFor="codigo-invitacion">Código de Invitación</Label>
-              <Input
-                id="codigo-invitacion"
-                value={user.codigoInvitacion}
-                readOnly
-                disabled
-                className="font-mono text-lg tracking-wider bg-muted"
-              />
-            </div>
-          )}
+              <Input id="codigo-invitacion" value={user.codigoInvitacion} readOnly disabled className="font-mono text-lg tracking-wider bg-muted" />
+            </div>}
 
-          {!user && (
-            <div className="space-y-2">
+          {!user && <div className="space-y-2">
               <Label htmlFor="password">Contraseña *</Label>
-              <Input
-                id="password"
-                type="password"
-                value={formData.password}
-                onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
-                className={errors.password ? "border-destructive" : ""}
-                placeholder="Contraseña para el nuevo usuario"
-              />
+              <Input id="password" type="password" value={formData.password} onChange={e => setFormData(prev => ({
+            ...prev,
+            password: e.target.value
+          }))} className={errors.password ? "border-destructive" : ""} placeholder="Contraseña para el nuevo usuario" />
               {errors.password && <p className="text-sm text-destructive">{errors.password}</p>}
-            </div>
-          )}
+            </div>}
 
           <div className="flex justify-end gap-3 pt-4">
             <Button type="button" variant="outline" onClick={onClose}>
