@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
-import { Users, UserPlus, BookOpen, Clock, Download, Eye } from "lucide-react";
+import { Users, UserPlus, BookOpen, Clock, Download, Eye, Bell } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Badge } from "@/components/ui/badge";
 import StudentDetailModal from "./StudentDetailModal";
 const kpiData = [{
   title: "Usuarios Activos Hoy",
@@ -104,6 +106,39 @@ const mockStudents: Student[] = [
   }
 ];
 
+const mockNotifications = [
+  {
+    id: "1",
+    mensaje: "Jaime Solís terminó la lección A1 - Past Perfect",
+    tiempo: "Hace 5 minutos",
+    tipo: "lesson"
+  },
+  {
+    id: "2",
+    mensaje: "Andrea Gonzales aprobó el examen de Nivel A2",
+    tiempo: "Hace 12 minutos",
+    tipo: "exam"
+  },
+  {
+    id: "3",
+    mensaje: "Pedro Ramírez completó 10 lecciones consecutivas",
+    tiempo: "Hace 1 hora",
+    tipo: "achievement"
+  },
+  {
+    id: "4",
+    mensaje: "Laura Fernández alcanzó 500 puntos acumulados",
+    tiempo: "Hace 2 horas",
+    tipo: "achievement"
+  },
+  {
+    id: "5",
+    mensaje: "Roberto Silva terminó la lección B1 - Future Continuous",
+    tiempo: "Hace 3 horas",
+    tipo: "lesson"
+  }
+];
+
 export default function Dashboard() {
   const [nameFilter, setNameFilter] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
@@ -140,9 +175,47 @@ export default function Dashboard() {
   };
 
   return <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">Panel de Control</h1>
-        <p className="text-muted-foreground">Bienvenido al panel de administración de TrueEnglish Academy</p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Panel de Control</h1>
+          <p className="text-muted-foreground">Bienvenido al panel de administración de TrueEnglish Academy</p>
+        </div>
+        
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="icon" className="relative">
+              <Bell className="h-5 w-5" />
+              {mockNotifications.length > 0 && (
+                <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs">
+                  {mockNotifications.length}
+                </Badge>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-96" align="end">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-foreground">Últimas Actividades</h3>
+                <Badge variant="secondary">{mockNotifications.length}</Badge>
+              </div>
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {mockNotifications.map((notification) => (
+                  <div key={notification.id} className="flex gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+                    <div className="flex-shrink-0 mt-1">
+                      {notification.tipo === "lesson" && <BookOpen className="h-4 w-4 text-primary" />}
+                      {notification.tipo === "exam" && <Users className="h-4 w-4 text-accent" />}
+                      {notification.tipo === "achievement" && <Clock className="h-4 w-4 text-success" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-foreground">{notification.mensaje}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{notification.tiempo}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
