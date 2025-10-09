@@ -34,6 +34,7 @@ export interface Note {
   titulo: string;
   descripcion: string;
   imagenes: string[];
+  audios: string[];
   activo: boolean;
   orden: number;
 }
@@ -71,6 +72,7 @@ const mockLessons: Lesson[] = [
         titulo: "Formación del Presente Simple",
         descripcion: "El presente simple se forma con el verbo en infinitivo...",
         imagenes: [],
+        audios: [],
         activo: true,
         orden: 0
       }

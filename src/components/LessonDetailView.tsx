@@ -1,24 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, Plus, Edit, Trash2, Upload, GripVertical, Eye, EyeOff, FileText, BookOpen } from "lucide-react";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
-} from '@dnd-kit/core';
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-  useSortable,
-} from '@dnd-kit/sortable';
-import {
-  CSS,
-} from '@dnd-kit/utilities';
+import { ArrowLeft, Plus, Edit, Trash2, Upload, Eye, EyeOff, FileText, BookOpen, ChevronUp, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,6 +53,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
     titulo: "",
     descripcion: "",
     imagenes: [] as string[],
+    audios: [] as string[],
     activo: true
   });
 
@@ -93,16 +75,9 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
     ...currentLesson.ejercicios.map(exercise => ({ ...exercise, type: 'exercise' as const }))
   ].sort((a, b) => a.orden - b.orden);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
-
   const handleCreateNote = () => {
     setEditingNote(null);
-    setNoteForm({ titulo: "", descripcion: "", imagenes: [], activo: true });
+    setNoteForm({ titulo: "", descripcion: "", imagenes: [], audios: [], activo: true });
     setIsNoteModalOpen(true);
   };
 
@@ -112,6 +87,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
       titulo: note.titulo,
       descripcion: note.descripcion,
       imagenes: note.imagenes,
+      audios: note.audios,
       activo: note.activo
     });
     setIsNoteModalOpen(true);
@@ -297,33 +273,62 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
     });
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
+  const handleMoveUp = (itemId: string) => {
+    const currentIndex = contentItems.findIndex(item => item.id === itemId);
+    if (currentIndex <= 0) return;
 
-    if (active.id !== over?.id) {
-      const updatedLesson = { ...currentLesson };
-      const oldIndex = contentItems.findIndex(item => item.id === active.id);
-      const newIndex = contentItems.findIndex(item => item.id === over?.id);
-      
-      const reorderedItems = arrayMove(contentItems, oldIndex, newIndex);
-      
-      // Update orden values for all items
-      reorderedItems.forEach((item, index) => {
-        item.orden = index;
-      });
+    const updatedLesson = { ...currentLesson };
+    const reorderedItems = [...contentItems];
+    
+    // Swap with previous item
+    [reorderedItems[currentIndex - 1], reorderedItems[currentIndex]] = 
+    [reorderedItems[currentIndex], reorderedItems[currentIndex - 1]];
+    
+    // Update orden values for all items
+    reorderedItems.forEach((item, index) => {
+      item.orden = index;
+    });
 
-      // Separate back into notes and exercises
-      updatedLesson.notas = reorderedItems
-        .filter((item): item is Note & { type: 'note' } => item.type === 'note')
-        .map(({ type, ...note }) => note);
-      
-      updatedLesson.ejercicios = reorderedItems
-        .filter((item): item is Exercise & { type: 'exercise' } => item.type === 'exercise')
-        .map(({ type, ...exercise }) => exercise);
+    // Separate back into notes and exercises
+    updatedLesson.notas = reorderedItems
+      .filter((item): item is Note & { type: 'note' } => item.type === 'note')
+      .map(({ type, ...note }) => note);
+    
+    updatedLesson.ejercicios = reorderedItems
+      .filter((item): item is Exercise & { type: 'exercise' } => item.type === 'exercise')
+      .map(({ type, ...exercise }) => exercise);
 
-      setCurrentLesson(updatedLesson);
-      onUpdate(updatedLesson);
-    }
+    setCurrentLesson(updatedLesson);
+    onUpdate(updatedLesson);
+  };
+
+  const handleMoveDown = (itemId: string) => {
+    const currentIndex = contentItems.findIndex(item => item.id === itemId);
+    if (currentIndex >= contentItems.length - 1) return;
+
+    const updatedLesson = { ...currentLesson };
+    const reorderedItems = [...contentItems];
+    
+    // Swap with next item
+    [reorderedItems[currentIndex], reorderedItems[currentIndex + 1]] = 
+    [reorderedItems[currentIndex + 1], reorderedItems[currentIndex]];
+    
+    // Update orden values for all items
+    reorderedItems.forEach((item, index) => {
+      item.orden = index;
+    });
+
+    // Separate back into notes and exercises
+    updatedLesson.notas = reorderedItems
+      .filter((item): item is Note & { type: 'note' } => item.type === 'note')
+      .map(({ type, ...note }) => note);
+    
+    updatedLesson.ejercicios = reorderedItems
+      .filter((item): item is Exercise & { type: 'exercise' } => item.type === 'exercise')
+      .map(({ type, ...exercise }) => exercise);
+
+    setCurrentLesson(updatedLesson);
+    onUpdate(updatedLesson);
   };
 
   const addOption = () => {
@@ -396,31 +401,24 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
               No hay contenido creado. Usa los botones "Nueva Nota" o "Nuevo Ejercicio" para comenzar.
             </p>
           ) : (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext
-                items={contentItems.map(item => item.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                <div className="space-y-4">
-                  {contentItems.map((item) => (
-                    <SortableContentItem
-                      key={item.id}
-                      item={item}
-                      onEditNote={handleEditNote}
-                      onDeleteNote={handleDeleteNote}
-                      onToggleNoteActive={handleToggleNoteActive}
-                      onEditExercise={handleEditExercise}
-                      onDeleteExercise={handleDeleteExercise}
-                      onToggleExerciseActive={handleToggleExerciseActive}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
+            <div className="space-y-4">
+              {contentItems.map((item, index) => (
+                <ContentItem
+                  key={item.id}
+                  item={item}
+                  isFirst={index === 0}
+                  isLast={index === contentItems.length - 1}
+                  onMoveUp={handleMoveUp}
+                  onMoveDown={handleMoveDown}
+                  onEditNote={handleEditNote}
+                  onDeleteNote={handleDeleteNote}
+                  onToggleNoteActive={handleToggleNoteActive}
+                  onEditExercise={handleEditExercise}
+                  onDeleteExercise={handleDeleteExercise}
+                  onToggleExerciseActive={handleToggleExerciseActive}
+                />
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -450,13 +448,20 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
                 placeholder="Escribe el contenido de la nota aquí..."
               />
             </div>
-            <div className="space-y-2">
-              <Label>Imágenes</Label>
-              <div className="border-2 border-dashed border-muted rounded-lg p-8 text-center">
-                <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">
-                  Arrastra imágenes aquí o haz clic para seleccionar
-                </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Imágenes</Label>
+                <div className="border-2 border-dashed border-muted rounded-lg p-4 text-center">
+                  <Upload className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">Cargar imágenes</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Audio</Label>
+                <div className="border-2 border-dashed border-muted rounded-lg p-4 text-center">
+                  <Upload className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">Cargar audio</p>
+                </div>
               </div>
             </div>
             <div className="flex items-center space-x-2">
@@ -635,9 +640,13 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
   );
 }
 
-// Sortable Content Item Component
-function SortableContentItem({ 
+// Content Item Component
+function ContentItem({ 
   item, 
+  isFirst,
+  isLast,
+  onMoveUp,
+  onMoveDown,
   onEditNote, 
   onDeleteNote, 
   onToggleNoteActive,
@@ -646,6 +655,10 @@ function SortableContentItem({
   onToggleExerciseActive 
 }: {
   item: ContentItem;
+  isFirst: boolean;
+  isLast: boolean;
+  onMoveUp: (id: string) => void;
+  onMoveDown: (id: string) => void;
   onEditNote: (note: Note) => void;
   onDeleteNote: (id: string) => void;
   onToggleNoteActive: (id: string) => void;
@@ -653,33 +666,31 @@ function SortableContentItem({
   onDeleteExercise: (id: string) => void;
   onToggleExerciseActive: (id: string) => void;
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-  } = useSortable({ id: item.id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`border rounded-lg p-4 ${!item.activo ? 'opacity-50 bg-muted/30' : ''}`}
-    >
+    <div className={`border rounded-lg p-4 ${!item.activo ? 'opacity-50 bg-muted/30' : ''}`}>
       <div className="flex justify-between items-start gap-4">
         <div className="flex items-start gap-3 flex-1">
-          <div
-            {...attributes}
-            {...listeners}
-            className="mt-1 cursor-grab text-muted-foreground hover:text-foreground"
-          >
-            <GripVertical className="w-5 h-5" />
+          <div className="flex flex-col gap-1 mt-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onMoveUp(item.id)}
+              disabled={isFirst}
+              className="h-7 w-7 p-0"
+              title="Subir"
+            >
+              <ChevronUp className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onMoveDown(item.id)}
+              disabled={isLast}
+              className="h-7 w-7 p-0"
+              title="Bajar"
+            >
+              <ChevronDown className="w-4 h-4" />
+            </Button>
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-2">
@@ -699,11 +710,18 @@ function SortableContentItem({
                 <p className="text-sm text-muted-foreground mb-2">
                   {(item as Note).descripcion}
                 </p>
-                {(item as Note).imagenes.length > 0 && (
-                  <Badge variant="outline">
-                    {(item as Note).imagenes.length} imagen(es)
-                  </Badge>
-                )}
+                <div className="flex gap-2">
+                  {(item as Note).imagenes.length > 0 && (
+                    <Badge variant="outline">
+                      {(item as Note).imagenes.length} imagen(es)
+                    </Badge>
+                  )}
+                  {(item as Note).audios.length > 0 && (
+                    <Badge variant="outline">
+                      {(item as Note).audios.length} audio(s)
+                    </Badge>
+                  )}
+                </div>
               </div>
             ) : (
               <div>
