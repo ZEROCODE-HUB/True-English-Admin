@@ -3,22 +3,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { OnboardingQuestion } from "./QuizManagement";
-
 interface OnboardingQuizModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (questionData: Omit<OnboardingQuestion, 'id'>) => void;
   question?: OnboardingQuestion | null;
 }
-
-export default function OnboardingQuizModal({ isOpen, onClose, onSave, question }: OnboardingQuizModalProps) {
+export default function OnboardingQuizModal({
+  isOpen,
+  onClose,
+  onSave,
+  question
+}: OnboardingQuizModalProps) {
   const [formData, setFormData] = useState({
     pregunta: "",
     opcion1: "",
@@ -28,9 +26,7 @@ export default function OnboardingQuizModal({ isOpen, onClose, onSave, question 
     respuestaCorrecta: 1,
     incluirEnTest: true
   });
-
   const [errors, setErrors] = useState<Record<string, string>>({});
-
   useEffect(() => {
     if (question) {
       setFormData({
@@ -55,29 +51,23 @@ export default function OnboardingQuizModal({ isOpen, onClose, onSave, question 
     }
     setErrors({});
   }, [question, isOpen]);
-
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
-
     if (!formData.pregunta.trim()) newErrors.pregunta = "La pregunta es requerida";
     if (!formData.opcion1.trim()) newErrors.opcion1 = "La opción 1 es requerida";
     if (!formData.opcion2.trim()) newErrors.opcion2 = "La opción 2 es requerida";
     if (!formData.opcion3.trim()) newErrors.opcion3 = "La opción 3 es requerida";
     if (!formData.opcion4.trim()) newErrors.opcion4 = "La opción 4 es requerida";
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (validateForm()) {
       onSave(formData);
     }
   };
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+  return <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
@@ -88,69 +78,57 @@ export default function OnboardingQuizModal({ isOpen, onClose, onSave, question 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
             <Label htmlFor="pregunta">Pregunta *</Label>
-            <Input
-              id="pregunta"
-              value={formData.pregunta}
-              onChange={(e) => setFormData(prev => ({ ...prev, pregunta: e.target.value }))}
-              className={errors.pregunta ? "border-destructive" : ""}
-              placeholder="Escribe la pregunta aquí..."
-            />
+            <Input id="pregunta" value={formData.pregunta} onChange={e => setFormData(prev => ({
+            ...prev,
+            pregunta: e.target.value
+          }))} className={errors.pregunta ? "border-destructive" : ""} placeholder="Escribe la pregunta aquí..." />
             {errors.pregunta && <p className="text-sm text-destructive">{errors.pregunta}</p>}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="opcion1">Opción 1 *</Label>
-              <Input
-                id="opcion1"
-                value={formData.opcion1}
-                onChange={(e) => setFormData(prev => ({ ...prev, opcion1: e.target.value }))}
-                className={errors.opcion1 ? "border-destructive" : ""}
-              />
+              <Input id="opcion1" value={formData.opcion1} onChange={e => setFormData(prev => ({
+              ...prev,
+              opcion1: e.target.value
+            }))} className={errors.opcion1 ? "border-destructive" : ""} />
               {errors.opcion1 && <p className="text-sm text-destructive">{errors.opcion1}</p>}
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="opcion2">Opción 2 *</Label>
-              <Input
-                id="opcion2"
-                value={formData.opcion2}
-                onChange={(e) => setFormData(prev => ({ ...prev, opcion2: e.target.value }))}
-                className={errors.opcion2 ? "border-destructive" : ""}
-              />
+              <Input id="opcion2" value={formData.opcion2} onChange={e => setFormData(prev => ({
+              ...prev,
+              opcion2: e.target.value
+            }))} className={errors.opcion2 ? "border-destructive" : ""} />
               {errors.opcion2 && <p className="text-sm text-destructive">{errors.opcion2}</p>}
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="opcion3">Opción 3 *</Label>
-              <Input
-                id="opcion3"
-                value={formData.opcion3}
-                onChange={(e) => setFormData(prev => ({ ...prev, opcion3: e.target.value }))}
-                className={errors.opcion3 ? "border-destructive" : ""}
-              />
+              <Input id="opcion3" value={formData.opcion3} onChange={e => setFormData(prev => ({
+              ...prev,
+              opcion3: e.target.value
+            }))} className={errors.opcion3 ? "border-destructive" : ""} />
               {errors.opcion3 && <p className="text-sm text-destructive">{errors.opcion3}</p>}
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="opcion4">Opción 4 *</Label>
-              <Input
-                id="opcion4"
-                value={formData.opcion4}
-                onChange={(e) => setFormData(prev => ({ ...prev, opcion4: e.target.value }))}
-                className={errors.opcion4 ? "border-destructive" : ""}
-              />
+              <Input id="opcion4" value={formData.opcion4} onChange={e => setFormData(prev => ({
+              ...prev,
+              opcion4: e.target.value
+            }))} className={errors.opcion4 ? "border-destructive" : ""} />
               {errors.opcion4 && <p className="text-sm text-destructive">{errors.opcion4}</p>}
             </div>
           </div>
 
           <div className="space-y-3">
             <Label>Respuesta Correcta *</Label>
-            <RadioGroup
-              value={formData.respuestaCorrecta.toString()}
-              onValueChange={(value) => setFormData(prev => ({ ...prev, respuestaCorrecta: parseInt(value) }))}
-              className="grid grid-cols-2 md:grid-cols-4 gap-4"
-            >
+            <RadioGroup value={formData.respuestaCorrecta.toString()} onValueChange={value => setFormData(prev => ({
+            ...prev,
+            respuestaCorrecta: parseInt(value)
+          }))} className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="1" id="respuesta1" />
                 <Label htmlFor="respuesta1" className="cursor-pointer">
@@ -178,34 +156,7 @@ export default function OnboardingQuizModal({ isOpen, onClose, onSave, question 
             </RadioGroup>
           </div>
 
-          <div className="bg-muted p-4 rounded-lg">
-            <h4 className="font-medium mb-2">Vista Previa de la Pregunta:</h4>
-            <div className="space-y-2">
-              <p className="font-medium">{formData.pregunta || "Tu pregunta aparecerá aquí..."}</p>
-              <div className="grid grid-cols-1 gap-2">
-                {[
-                  { num: 1, text: formData.opcion1 },
-                  { num: 2, text: formData.opcion2 },
-                  { num: 3, text: formData.opcion3 },
-                  { num: 4, text: formData.opcion4 }
-                ].map((opcion) => (
-                  <div 
-                    key={opcion.num} 
-                    className={`p-2 border rounded ${
-                      formData.respuestaCorrecta === opcion.num 
-                        ? "bg-success/10 border-success text-success-foreground" 
-                        : "bg-background"
-                    }`}
-                  >
-                    <span className="font-medium">{opcion.num}.</span> {opcion.text || `Opción ${opcion.num}`}
-                    {formData.respuestaCorrecta === opcion.num && (
-                      <span className="ml-2 text-xs font-medium">(Correcta)</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          
 
           <div className="flex justify-end gap-3 pt-4">
             <Button type="button" variant="outline" onClick={onClose}>
@@ -217,6 +168,5 @@ export default function OnboardingQuizModal({ isOpen, onClose, onSave, question 
           </div>
         </form>
       </DialogContent>
-    </Dialog>
-  );
+    </Dialog>;
 }
