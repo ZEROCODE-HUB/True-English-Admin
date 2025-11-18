@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { format } from "date-fns";
-import { 
-  Search, 
-  Filter, 
-  Plus, 
-  Edit, 
-  Trash2, 
-  Power, 
+import {
+  Search,
+  Filter,
+  Plus,
+  Edit,
+  Trash2,
+  Power,
   PowerOff,
   Mail,
   Check,
@@ -36,78 +36,30 @@ import {
 import UserFormModal from "./UserFormModal";
 import DeleteConfirmationDialog from "./DeleteConfirmationDialog";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/lib/supabase";
 
 export interface User {
   id: string;
   nombre: string;
   apellido: string;
   email: string;
-  celular: string;
-  fechaNacimiento: Date;
-  intereses: string[];
-  nivelActual: string;
-  fechaRegistro: Date;
-  estado: 'activo' | 'inactivo';
-  tipoUsuario: 'Alumno' | 'Externo';
-  codigoInvitacion?: string;
+  celular?: string;
+  fechaNacimiento?: string | null;
+  intereses?: string[];
+  nivelActual?: string | null;
+  fechaRegistro?: string;
+  estado?: string | null;
+  tipoUsuario?: string | null;
+  codigoInvitacion?: string | null;
 }
 
-export interface PendingInvitation {
-  id: string;
-  email: string;
-  nombre: string;
-  codigoInvitacion: string;
-  fechaInvitacion: Date;
-}
+// Invitations will be stored in `profiles` as rows with a `code` field.
 
-const mockUsers: User[] = [
-  {
-    id: "1",
-    nombre: "María",
-    apellido: "García",
-    email: "maria.garcia@email.com",
-    celular: "+34 666 123 456",
-    fechaNacimiento: new Date("1990-05-15"),
-    intereses: ["Conversación", "Gramática", "Vocabulario"],
-    nivelActual: "B1",
-    fechaRegistro: new Date("2024-01-15"),
-    estado: "activo",
-    tipoUsuario: "Alumno",
-    codigoInvitacion: "123456"
-  },
-  {
-    id: "2",
-    nombre: "Carlos",
-    apellido: "López",
-    email: "carlos.lopez@email.com",
-    celular: "+34 666 789 012",
-    fechaNacimiento: new Date("1985-08-22"),
-    intereses: ["Pronunciación", "Escucha"],
-    nivelActual: "A2",
-    fechaRegistro: new Date("2024-02-10"),
-    estado: "activo",
-    tipoUsuario: "Alumno",
-    codigoInvitacion: "789012"
-  },
-  {
-    id: "3",
-    nombre: "Ana",
-    apellido: "Martínez",
-    email: "ana.martinez@email.com",
-    celular: "+34 666 345 678",
-    fechaNacimiento: new Date("1992-12-03"),
-    intereses: ["Conversación", "Cultura"],
-    nivelActual: "C1",
-    fechaRegistro: new Date("2023-11-20"),
-    estado: "inactivo",
-    tipoUsuario: "Externo",
-    codigoInvitacion: "345678"
-  }
-];
+// We'll fetch users from Supabase `profiles` table
 
 const levelColors = {
   A1: "bg-red-100 text-red-800",
-  A2: "bg-orange-100 text-orange-800", 
+  A2: "bg-orange-100 text-orange-800",
   B1: "bg-yellow-100 text-yellow-800",
   B2: "bg-blue-100 text-blue-800",
   C1: "bg-green-100 text-green-800",
@@ -115,36 +67,82 @@ const levelColors = {
 };
 
 export default function UserManagement() {
-  const [users, setUsers] = useState<User[]>(mockUsers);
-  const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [invitedStudents, setInvitedStudents] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [filterLevel, setFilterLevel] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [showInvited, setShowInvited] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
-  const [resendConfirmOpen, setResendConfirmOpen] = useState(false);
-  const [selectedInvitationId, setSelectedInvitationId] = useState<string | null>(null);
+
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
     onConfirm: () => void;
-  }>({ isOpen: false, onConfirm: () => {} });
+  }>({ isOpen: false, onConfirm: () => { } });
   const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 5;
+  const [total, setTotal] = useState(0);
 
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = 
-      user.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.apellido.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesLevel = filterLevel === "all" || user.nivelActual === filterLevel;
-    const matchesStatus = filterStatus === "all" || user.estado === filterStatus;
+  // Fetch profiles from Supabase with server-side pagination, search and filters
+  const fetchUsers = async (opts?: { page?: number }) => {
+    setLoading(true);
+    const currentPage = opts?.page ?? page;
+    const from = (currentPage - 1) * pageSize;
+    const to = from + pageSize - 1;
 
-    return matchesSearch && matchesLevel && matchesStatus;
-  });
+    try {
+      let query = supabase.from('profiles').select('*', { count: 'exact' }).order('created_at', { ascending: false });
+
+      const term = searchTerm.trim();
+      if (term) {
+        // search across name, last_name and email
+        const like = `%${term}%`;
+        query = query.or(`name.ilike.${like},last_name.ilike.${like},email.ilike.${like}`);
+      }
+
+      if (filterLevel && filterLevel !== 'all') query = query.eq('nivel_actual', filterLevel);
+      if (filterStatus && filterStatus !== 'all') query = query.eq('status', filterStatus);
+
+      query = query.range(from, to);
+
+      const { data, error, count } = await query;
+
+      if (error) {
+        toast({ title: 'Error', description: error.message, variant: 'destructive' });
+        setUsers([]);
+        setTotal(0);
+      } else if (data) {
+        const mapped: User[] = (data as Record<string, unknown>[]).map((p) => ({
+          id: String(p['id'] ?? ''),
+          nombre: String(p['name'] ?? ''),
+          apellido: String(p['last_name'] ?? ''),
+          email: String(p['email'] ?? ''),
+          celular: String(p['phone'] ?? ''),
+          fechaNacimiento: p['birth_date'] ? String(p['birth_date']) : null,
+          nivelActual: p['nivel_actual'] ? String(p['nivel_actual']) : null,
+          fechaRegistro: p['created_at'] ? String(p['created_at']) : null,
+          estado: p['status'] ? String(p['status']) : null,
+          tipoUsuario: p['tipo'] ? String(p['tipo']) : null,
+          codigoInvitacion: p['code'] ? String(p['code']) : null,
+        }));
+        setUsers(mapped);
+        setTotal(typeof count === 'number' ? count : mapped.length);
+      } else {
+        setUsers([]);
+        setTotal(0);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleCreateUser = () => {
     setEditingUser(null);
@@ -159,55 +157,125 @@ export default function UserManagement() {
   const handleDeleteUser = (userId: string) => {
     setDeleteDialog({
       isOpen: true,
-      onConfirm: () => {
+      onConfirm: async () => {
+        // Delete profile row in Supabase
+        const { error } = await supabase.from('profiles').delete().eq('id', userId);
+        if (error) {
+          toast({ title: 'Error', description: error.message, variant: 'destructive' });
+          return;
+        }
         setUsers(users.filter(u => u.id !== userId));
-        toast({
-          title: "Usuario eliminado",
-          description: "El usuario ha sido eliminado correctamente.",
-        });
+        toast({ title: 'Usuario eliminado', description: 'El usuario ha sido eliminado correctamente.' });
       },
     });
   };
 
   const handleToggleStatus = (userId: string) => {
-    setUsers(users.map(user => 
-      user.id === userId 
-        ? { ...user, estado: user.estado === 'activo' ? 'inactivo' : 'activo' }
-        : user
-    ));
-    toast({
-      title: "Estado actualizado",
-      description: "El estado del usuario ha sido actualizado.",
-    });
+    // Toggle status in DB
+    (async () => {
+      const user = users.find(u => u.id === userId);
+      if (!user) return;
+      const newStatus = user.estado === 'activo' ? 'inactivo' : 'activo';
+      const { error } = await supabase.from('profiles').update({ status: newStatus }).eq('id', userId);
+      if (error) {
+        toast({ title: 'Error', description: error.message, variant: 'destructive' });
+        return;
+      }
+      setUsers(users.map(u => u.id === userId ? { ...u, estado: newStatus } : u));
+      toast({ title: 'Estado actualizado', description: 'El estado del usuario ha sido actualizado.' });
+    })();
   };
 
-  const handleSaveUser = (userData: Omit<User, 'id' | 'fechaRegistro'>) => {
+  const handleSaveUser = async (userData: Record<string, unknown>) => {
+    // Map form data to DB columns
+    const payload = {
+      email: userData.email,
+      name: userData.nombre,
+      last_name: userData.apellido,
+      phone: userData.celular ?? null,
+      birth_date: userData.fechaNacimiento ?? null,
+      nivel_actual: userData.nivelActual ?? null,
+      status: userData.estado ?? 'activo',
+      tipo: userData.tipoUsuario ?? 'Alumno',
+      code: userData.codigoInvitacion ?? null,
+    };
+
     if (editingUser) {
-      // Update existing user
-      setUsers(users.map(user => 
-        user.id === editingUser.id 
-          ? { ...userData, id: editingUser.id, fechaRegistro: editingUser.fechaRegistro }
-          : user
-      ));
-      toast({
-        title: "Usuario actualizado",
-        description: "Los datos del usuario han sido actualizados correctamente.",
-      });
+      // Update profile row
+      const { error } = await supabase.from('profiles').update(payload).eq('id', editingUser.id);
+      if (error) {
+        toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      } else {
+        toast({ title: 'Usuario actualizado', description: 'Los datos del usuario han sido actualizados correctamente.' });
+        await fetchUsers();
+      }
     } else {
-      // Create new user
-      const newUser: User = {
-        ...userData,
-        id: Date.now().toString(),
-        fechaRegistro: new Date()
-      };
-      setUsers([...users, newUser]);
-      toast({
-        title: "Usuario creado",
-        description: "El nuevo usuario ha sido creado correctamente.",
-      });
+      // Creating new user: create auth user then insert profile
+      try {
+        const password = String(userData.password ?? '');
+        if (!password) {
+          toast({ title: 'Error', description: 'La contraseña es requerida para crear un usuario.', variant: 'destructive' });
+          return;
+        }
+        const { data: signData, error: signError } = await supabase.auth.signUp({ email: String(userData.email ?? ''), password });
+        if (signError) {
+          toast({ title: 'Error creando usuario', description: signError.message, variant: 'destructive' });
+          return;
+        }
+        const signObj = signData as { user?: { id?: string } } | undefined;
+        const userId = signObj?.user?.id;
+        if (!userId) {
+          toast({ title: 'Error', description: 'No se pudo obtener el id del usuario creado.', variant: 'destructive' });
+          return;
+        }
+        const insertObj = { id: userId, ...payload };
+        // Use upsert to avoid duplicate-key errors if a profile already exists for this id
+        const { error: insertError } = await supabase.from('profiles').upsert(insertObj, { onConflict: 'id' });
+        if (insertError) {
+          toast({ title: 'Error', description: insertError.message, variant: 'destructive' });
+          return;
+        }
+        toast({ title: 'Usuario creado', description: 'El nuevo usuario ha sido creado correctamente.' });
+        await fetchUsers();
+      } catch (err) {
+        toast({ title: 'Error', description: String(err), variant: 'destructive' });
+      }
     }
+
     setIsModalOpen(false);
   };
+
+  // Re-fetch when filters/search change (reset to page 1)
+  useEffect(() => {
+    setPage(1);
+    fetchUsers({ page: 1 });
+    // also refresh invited students when filters/search change
+    fetchInvitedStudents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterLevel, filterStatus, searchTerm]);
+
+  // Fetch when page changes
+  useEffect(() => {
+    fetchUsers({ page });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
+
+  // fetch invited students on mount
+  useEffect(() => {
+    fetchInvitedStudents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounce the search input so we don't query on every keystroke
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearchTerm(searchInput.trim());
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  const filteredUsers = users;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const handleInviteUser = () => {
     setInviteEmail("");
@@ -218,57 +286,90 @@ export default function UserManagement() {
     setIsInviteModalOpen(true);
   };
 
-  const handleSendInvitation = () => {
+  const toggleShowInvited = async () => {
+    const next = !showInvited;
+    setShowInvited(next);
+    if (next) await fetchInvitedStudents();
+  };
+
+  async function fetchInvitedStudents() {
+    try {
+      // use a separate `invitations` table to avoid FK constraints on `profiles.id`
+      const { data, error } = await supabase
+        .from('invitations')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) {
+        toast({ title: 'Error', description: error.message, variant: 'destructive' });
+        setInvitedStudents([]);
+        return;
+      }
+      const mapped: User[] = (data as Record<string, unknown>[]).map((p) => ({
+        id: String(p['id'] ?? ''),
+        nombre: String(p['name'] ?? ''),
+        apellido: String(p['last_name'] ?? ''),
+        email: String(p['email'] ?? ''),
+        celular: String(p['phone'] ?? ''),
+        fechaNacimiento: p['birth_date'] ? String(p['birth_date']) : null,
+        nivelActual: p['nivel_actual'] ? String(p['nivel_actual']) : null,
+        fechaRegistro: p['created_at'] ? String(p['created_at']) : null,
+        estado: p['status'] ? String(p['status']) : null,
+        tipoUsuario: p['tipo'] ? String(p['tipo']) : null,
+        codigoInvitacion: p['code'] ? String(p['code']) : null,
+      }));
+      setInvitedStudents(mapped);
+    } catch (err) {
+      toast({ title: 'Error', description: String(err), variant: 'destructive' });
+      setInvitedStudents([]);
+    }
+  };
+
+  const handleSendInvitation = async () => {
     if (!inviteEmail || !inviteName) {
-      toast({
-        title: "Error",
-        description: "Por favor completa todos los campos.",
-        variant: "destructive",
-      });
+      toast({ title: 'Error', description: 'Por favor completa todos los campos.', variant: 'destructive' });
       return;
     }
 
-    const newInvitation: PendingInvitation = {
-      id: Date.now().toString(),
+    const insertObj = {
+      name: inviteName,
       email: inviteEmail,
-      nombre: inviteName,
-      codigoInvitacion: inviteCode,
-      fechaInvitacion: new Date()
+      code: inviteCode,
+      tipo: 'Alumno',
+      status: 'invitado',
     };
 
-    setPendingInvitations([...pendingInvitations, newInvitation]);
+    // insert into `invitations` table (create this table in Supabase)
+    const { error } = await supabase.from('invitations').insert(insertObj);
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      return;
+    }
+
     setIsInviteModalOpen(false);
-    toast({
-      title: "Invitación enviada",
-      description: "La invitación ha sido enviada correctamente.",
-    });
+    setInviteEmail('');
+    setInviteName('');
+    setInviteCode('');
+    toast({ title: 'Invitación enviada', description: 'La invitación ha sido guardada.' });
+    await fetchInvitedStudents();
   };
 
-  const handleResendInvitation = (invitationId: string) => {
-    setSelectedInvitationId(invitationId);
-    setResendConfirmOpen(true);
+  const handleResendInvitation = (studentId: string) => {
+    // For now we just show a toast - real email sending requires backend
+    toast({ title: 'Email reenviado', description: 'La invitación ha sido reenviada.' });
   };
 
-  const handleConfirmResend = () => {
-    if (!selectedInvitationId) return;
-    
-    toast({
-      title: "Email reenviado",
-      description: "La invitación ha sido reenviada correctamente.",
-    });
-    setResendConfirmOpen(false);
-    setSelectedInvitationId(null);
-  };
-
-  const handleDeleteInvitation = (invitationId: string) => {
+  const handleDeleteInvitedStudent = (studentId: string) => {
     setDeleteDialog({
       isOpen: true,
-      onConfirm: () => {
-        setPendingInvitations(pendingInvitations.filter(inv => inv.id !== invitationId));
-        toast({
-          title: "Invitación eliminada",
-          description: "La invitación ha sido eliminada.",
-        });
+      onConfirm: async () => {
+        const { error } = await supabase.from('invitations').delete().eq('id', studentId);
+        if (error) {
+          toast({ title: 'Error', description: error.message, variant: 'destructive' });
+          return;
+        }
+        toast({ title: 'Invitación eliminada', description: 'Invitación eliminada correctamente.' });
+        await fetchInvitedStudents();
+        await fetchUsers();
       },
     });
   };
@@ -289,6 +390,9 @@ export default function UserManagement() {
             <Plus className="w-4 h-4 mr-2" />
             Nuevo Usuario
           </Button>
+          <Button variant="outline" onClick={toggleShowInvited}>
+            {showInvited ? 'Ocultar Invitados' : 'Ver Invitados'}
+          </Button>
         </div>
       </div>
 
@@ -304,8 +408,8 @@ export default function UserManagement() {
             <div className="flex-1 min-w-[200px]">
               <Input
                 placeholder="Buscar por nombre, apellido o email..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 className="w-full"
               />
             </div>
@@ -337,56 +441,63 @@ export default function UserManagement() {
         </CardContent>
       </Card>
 
-      {pendingInvitations.length > 0 && (
+
+
+      {showInvited && (
         <Card className="shadow-card">
           <CardHeader>
-            <CardTitle>Invitaciones Pendientes ({pendingInvitations.length})</CardTitle>
+            <CardTitle>Estudiantes Invitados ({invitedStudents.length})</CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nombre</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Código de Invitación</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pendingInvitations.map((invitation) => (
-                  <TableRow key={invitation.id}>
-                    <TableCell className="font-medium">{invitation.nombre}</TableCell>
-                    <TableCell>{invitation.email}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="font-mono">
-                        {invitation.codigoInvitacion}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleResendInvitation(invitation.id)}
-                        >
-                          <Mail className="w-4 h-4 mr-1" />
-                          Reenviar Email
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleDeleteInvitation(invitation.id)}
-                          className="text-destructive hover:text-destructive"
-                        >
-                          <Trash2 className="w-4 h-4 mr-1" />
-                          Eliminar
-                        </Button>
-                      </div>
-                    </TableCell>
+            {invitedStudents.length === 0 ? (
+              <div className="py-6 text-center text-muted-foreground">No hay estudiantes invitados</div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nombre</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Código de Invitación</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {invitedStudents.map((inv) => (
+                    <TableRow key={inv.id || inv.email}>
+                      <TableCell className="font-medium">{inv.nombre}</TableCell>
+                      <TableCell>{inv.email}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="font-mono">
+                          {inv.codigoInvitacion}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleResendInvitation(inv.id)}
+                          >
+                            <Mail className="w-4 h-4 mr-1" />
+                            Reenviar Email
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDeleteInvitedStudent(inv.id)}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="w-4 h-4 mr-1" />
+                            Eliminar
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+
           </CardContent>
         </Card>
       )}
@@ -446,8 +557,8 @@ export default function UserManagement() {
                         onClick={() => handleToggleStatus(user.id)}
                         className={user.estado === 'activo' ? 'text-warning' : 'text-success'}
                       >
-                        {user.estado === 'activo' ? 
-                          <PowerOff className="w-4 h-4" /> : 
+                        {user.estado === 'activo' ?
+                          <PowerOff className="w-4 h-4" /> :
                           <Power className="w-4 h-4" />
                         }
                       </Button>
@@ -474,6 +585,31 @@ export default function UserManagement() {
         onSave={handleSaveUser}
         user={editingUser}
       />
+
+      {/* Pagination controls (moved to bottom) */}
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-muted-foreground">
+          {total > 0 ? (
+            <span>
+              Mostrando {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, total)} de {total}
+            </span>
+          ) : (
+            <span>No hay usuarios</span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button disabled={page <= 1 || loading} variant="outline" onClick={() => setPage(p => Math.max(1, p - 1))}>
+            Anterior
+          </Button>
+          <div className="text-sm">
+            Página {page} / {totalPages}
+          </div>
+          <Button disabled={page >= totalPages || loading} variant="outline" onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+            Siguiente
+          </Button>
+        </div>
+      </div>
 
       <Dialog open={isInviteModalOpen} onOpenChange={setIsInviteModalOpen}>
         <DialogContent className="sm:max-w-[425px]">
@@ -531,25 +667,8 @@ export default function UserManagement() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={resendConfirmOpen} onOpenChange={setResendConfirmOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Confirmar reenvío</DialogTitle>
-            <DialogDescription>
-              ¿Estás seguro de que deseas reenviar la invitación a este usuario?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setResendConfirmOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleConfirmResend}>
-              Confirmar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      
+      {/* resend confirmation removed - resending shows a toast immediately */}
+
       <DeleteConfirmationDialog
         isOpen={deleteDialog.isOpen}
         onClose={() => setDeleteDialog({ ...deleteDialog, isOpen: false })}

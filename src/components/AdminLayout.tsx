@@ -1,22 +1,18 @@
 import { useState } from "react";
-import { 
-  LayoutDashboard, 
-  Users, 
-  BookOpen, 
-  Brain, 
-  MessageSquare, 
-  BarChart3, 
-  LogOut 
+import {
+  LayoutDashboard,
+  Users,
+  BookOpen,
+  Brain,
+  MessageSquare,
+  BarChart3,
+  LogOut
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider } from "@/components/ui/sidebar";
 
-interface AdminLayoutProps {
-  children: React.ReactNode;
-  currentPage: string;
-  onPageChange: (page: string) => void;
-  onLogout: () => void;
-}
+import { Outlet, useNavigate, useLocation } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 
 const menuItems = [
   { id: "dashboard", title: "Panel de Control", icon: LayoutDashboard },
@@ -25,8 +21,22 @@ const menuItems = [
   { id: "quizzes", title: "Gestión de Quizzes", icon: Brain },
   { id: "conversations", title: "Conversaciones con IA", icon: MessageSquare },
 ];
+export default function AdminLayout() {
+  const navigate = useNavigate();
+  const location = useLocation();
 
-export default function AdminLayout({ children, currentPage, onPageChange, onLogout }: AdminLayoutProps) {
+  const handleNavigate = (id: string) => {
+    const path = `/${id}`;
+    navigate(path);
+  };
+
+  const { signOut } = useAuth();
+
+  const handleLogout = async () => {
+    await signOut();
+    navigate("/login");
+  };
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full">
@@ -43,17 +53,18 @@ export default function AdminLayout({ children, currentPage, onPageChange, onLog
                 </div>
               </div>
             </div>
-            
+
             <SidebarGroup>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {menuItems.map((item) => (
                     <SidebarMenuItem key={item.id}>
                       <SidebarMenuButton
-                        onClick={() => onPageChange(item.id)}
-                        className={`w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent ${
-                          currentPage === item.id ? "bg-sidebar-accent" : ""
-                        }`}
+                        onClick={() => handleNavigate(item.id)}
+                        className={`w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent ${location.pathname === `/${item.id}` || (item.id === "dashboard" && location.pathname === "/")
+                          ? "bg-sidebar-accent"
+                          : ""
+                          }`}
                       >
                         <item.icon className="w-5 h-5 mr-3" />
                         {item.title}
@@ -63,10 +74,10 @@ export default function AdminLayout({ children, currentPage, onPageChange, onLog
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
-            
+
             <div className="mt-auto p-4 border-t border-sidebar-border">
               <Button
-                onClick={onLogout}
+                onClick={handleLogout}
                 className="w-full justify-start bg-[hsl(220,70%,25%)] text-white hover:bg-[hsl(220,70%,25%)] border-0"
               >
                 <LogOut className="w-5 h-5 mr-3" />
@@ -78,7 +89,7 @@ export default function AdminLayout({ children, currentPage, onPageChange, onLog
 
         <main className="flex-1 bg-background">
           <div className="p-6">
-            {children}
+            <Outlet />
           </div>
         </main>
       </div>

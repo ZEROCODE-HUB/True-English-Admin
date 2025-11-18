@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus, Edit, Eye, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,99 +16,12 @@ import {
 } from "@/components/ui/table";
 import LessonFormModal from "./LessonFormModal";
 import LessonDetailView from "./LessonDetailView";
+import { supabase } from "@/lib/supabase";
 import DeleteConfirmationDialog from "./DeleteConfirmationDialog";
 import { useToast } from "@/hooks/use-toast";
+import type { Lesson, Note, Exercise, ExerciseOption, RPCLessonCore, RPCGetLessonDetailResponse, RPCContentItem } from '@/types/db';
 
-export interface Lesson {
-  id: string;
-  titulo: string;
-  descripcion: string;
-  nivelAsociado: string;
-  obligatoria: boolean;
-  fechaCreacion: Date;
-  notas: Note[];
-  ejercicios: Exercise[];
-}
-
-export interface Note {
-  id: string;
-  titulo: string;
-  descripcion: string;
-  imagenes: string[];
-  audios: string[];
-  activo: boolean;
-  orden: number;
-}
-
-export interface ExerciseOption {
-  id: string;
-  texto: string;
-}
-
-export interface Exercise {
-  id: string;
-  descripcion: string;
-  tipo: string;
-  contenido: string; // Rich text content
-  imagenes: string[];
-  audios: string[];
-  opciones: ExerciseOption[];
-  respuestaCorrecta: string; // ID of the correct option
-  obligatorio: boolean;
-  activo: boolean;
-  orden: number;
-}
-
-const mockLessons: Lesson[] = [
-  {
-    id: "1",
-    titulo: "Presente Simple",
-    descripcion: "Introducción al presente simple en inglés",
-    nivelAsociado: "A1",
-    obligatoria: true,
-    fechaCreacion: new Date("2024-01-10"),
-    notas: [
-      {
-        id: "1",
-        titulo: "Formación del Presente Simple",
-        descripcion: "El presente simple se forma con el verbo en infinitivo...",
-        imagenes: [],
-        audios: [],
-        activo: true,
-        orden: 0
-      }
-    ],
-    ejercicios: [
-      {
-        id: "1",
-        descripcion: "Completa las oraciones con el presente simple",
-        tipo: "Gramática y Ortografía",
-        contenido: "Selecciona la forma correcta del verbo en presente simple.",
-        imagenes: [],
-        audios: [],
-        opciones: [
-          { id: "1", texto: "She work in the office" },
-          { id: "2", texto: "She works in the office" },
-          { id: "3", texto: "She working in the office" }
-        ],
-        respuestaCorrecta: "2",
-        obligatorio: true,
-        activo: true,
-        orden: 1
-      }
-    ]
-  },
-  {
-    id: "2",
-    titulo: "Past Continuous",
-    descripcion: "Uso del pasado continuo para acciones en progreso",
-    nivelAsociado: "B1",
-    obligatoria: false,
-    fechaCreacion: new Date("2024-02-15"),
-    notas: [],
-    ejercicios: []
-  }
-];
+// lessons will be loaded from Supabase
 
 const levelColors = {
   A1: "bg-red-100 text-red-800",
@@ -120,7 +33,7 @@ const levelColors = {
 };
 
 export default function CourseManagement() {
-  const [lessons, setLessons] = useState<Lesson[]>(mockLessons);
+  const [lessons, setLessons] = useState<Lesson[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedLevel, setSelectedLevel] = useState<string>("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -129,12 +42,39 @@ export default function CourseManagement() {
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
     onConfirm: () => void;
-  }>({ isOpen: false, onConfirm: () => {} });
+  }>({ isOpen: false, onConfirm: () => { } });
   const { toast } = useToast();
+
+  useEffect(() => {
+    const fetchLessons = async () => {
+      try {
+        const { data, error } = await supabase.rpc('get_lessons', { p_search: '', p_level: 'all', p_limit: 100, p_offset: 0 });
+        if (error) throw error;
+        const payload = data as { data?: RPCLessonCore[]; count?: number } | null;
+        const items = payload?.data || [];
+        const mapped = items.map((l: RPCLessonCore) => ({
+          id: l.id,
+          titulo: l.title,
+          descripcion: l.description,
+          nivelAsociado: l.level,
+          obligatoria: l.mandatory,
+          fechaCreacion: l.created_at,
+          notas: [],
+          ejercicios: []
+        }));
+        setLessons(mapped);
+      } catch (err) {
+        console.error('Error fetching lessons', err);
+        toast({ title: 'Error', description: 'No se pudieron cargar las lecciones.' });
+      }
+    };
+
+    fetchLessons();
+  }, [toast]);
 
   const filteredLessons = lessons.filter(lesson => {
     const matchesSearch = lesson.titulo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         lesson.descripcion.toLowerCase().includes(searchTerm.toLowerCase());
+      lesson.descripcion.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesLevel = selectedLevel === "all" || lesson.nivelAsociado === selectedLevel;
     return matchesSearch && matchesLevel;
   });
@@ -150,51 +90,123 @@ export default function CourseManagement() {
   };
 
   const handleViewLesson = (lesson: Lesson) => {
-    setSelectedLesson(lesson);
+    // fetch detail payload via RPC and set selectedLesson mapped to UI model
+    (async () => {
+      try {
+        const { data, error } = await supabase.rpc('get_lesson_detail', { p_lesson_id: lesson.id });
+        if (error) throw error;
+        const payload = data as RPCGetLessonDetailResponse;
+        const core = payload.lesson;
+        const content: RPCContentItem[] = payload.content || [];
+
+        const notas = content.filter((c) => c.kind === 'note').map((n) => ({
+          id: n.id,
+          titulo: n.title || '',
+          descripcion: n.content || '',
+          imagenes: n.image_url ? [n.image_url] : [],
+          audios: n.audio_url ? [n.audio_url] : [],
+          activo: n.active || false,
+          orden: n.order || 0
+        }));
+
+        const ejercicios = content.filter((c) => c.kind === 'exercise').map((e) => ({
+          id: e.id,
+          descripcion: e.title || '',
+          tipo: e.type || '',
+          contenido: e.content || '',
+          imagenes: e.image_url ? [e.image_url] : [],
+          audios: e.audio_url ? [e.audio_url] : [],
+          opciones: (e.options || []).map((o) => ({ id: o.id, texto: o.text })),
+          respuestaCorrecta: e.correct_option_id || '',
+          obligatorio: e.mandatory || false,
+          activo: e.active || false,
+          orden: e.order || 0
+        }));
+
+        const mappedLesson: Lesson = {
+          id: core.id,
+          titulo: core.title,
+          descripcion: core.description,
+          nivelAsociado: core.level,
+          obligatoria: core.mandatory,
+          fechaCreacion: core.created_at,
+          notas,
+          ejercicios
+        };
+
+        setSelectedLesson(mappedLesson);
+      } catch (err) {
+        console.error(err);
+        toast({ title: 'Error', description: 'No se pudo cargar el detalle de la lección.' });
+      }
+    })();
   };
 
   const handleDeleteLesson = (lessonId: string) => {
     setDeleteDialog({
       isOpen: true,
       onConfirm: () => {
-        setLessons(lessons.filter(l => l.id !== lessonId));
-        toast({
-          title: "Lección eliminada",
-          description: "La lección ha sido eliminada correctamente.",
-        });
+        (async () => {
+          try {
+            const { error } = await supabase.from('lessons').delete().eq('id', lessonId);
+            if (error) throw error;
+            setLessons(prev => prev.filter(l => l.id !== lessonId));
+            toast({ title: 'Lección eliminada', description: 'La lección ha sido eliminada correctamente.' });
+          } catch (err) {
+            console.error(err);
+            toast({ title: 'Error', description: 'No se pudo eliminar la lección.' });
+          }
+        })();
       },
     });
   };
 
-  const handleSaveLesson = (lessonData: Omit<Lesson, 'id' | 'fechaCreacion' | 'notas' | 'ejercicios'>) => {
-    if (editingLesson) {
-      setLessons(lessons.map(lesson =>
-        lesson.id === editingLesson.id
-          ? { 
-              ...lesson, 
-              ...lessonData
-            }
-          : lesson
-      ));
-      toast({
-        title: "Lección actualizada",
-        description: "Los datos de la lección han sido actualizados correctamente.",
-      });
-    } else {
-      const newLesson: Lesson = {
-        ...lessonData,
-        id: Date.now().toString(),
-        fechaCreacion: new Date(),
-        notas: [],
-        ejercicios: []
-      };
-      setLessons([...lessons, newLesson]);
-      toast({
-        title: "Lección creada",
-        description: "La nueva lección ha sido creada correctamente.",
-      });
+  const handleSaveLesson = async (lessonData: Omit<Lesson, 'id' | 'fechaCreacion' | 'notas' | 'ejercicios'>) => {
+    try {
+      if (editingLesson) {
+        const { error } = await supabase.from('lessons').update({
+          title: lessonData.titulo,
+          description: lessonData.descripcion,
+          level: lessonData.nivelAsociado,
+          mandatory: lessonData.obligatoria
+        }).eq('id', editingLesson.id);
+        if (error) throw error;
+        // update local state with edited values
+        const updatedLesson: Lesson = {
+          ...editingLesson,
+          titulo: lessonData.titulo,
+          descripcion: lessonData.descripcion,
+          nivelAsociado: lessonData.nivelAsociado,
+          obligatoria: lessonData.obligatoria
+        };
+        setLessons(prev => prev.map(l => l.id === updatedLesson.id ? updatedLesson : l));
+        toast({ title: 'Lección actualizada', description: 'Los datos de la lección han sido actualizados correctamente.' });
+      } else {
+        const { data, error } = await supabase.from('lessons').insert([{
+          title: lessonData.titulo,
+          description: lessonData.descripcion,
+          level: lessonData.nivelAsociado,
+          mandatory: lessonData.obligatoria
+        }]).select().single();
+        if (error) throw error;
+        setLessons(prev => [{
+          id: data.id,
+          titulo: data.title,
+          descripcion: data.description,
+          nivelAsociado: data.level,
+          obligatoria: data.mandatory,
+          fechaCreacion: data.created_at,
+          notas: [],
+          ejercicios: []
+        }, ...prev]);
+        toast({ title: 'Lección creada', description: 'La nueva lección ha sido creada correctamente.' });
+      }
+      setIsModalOpen(false);
+      setEditingLesson(null);
+    } catch (err) {
+      console.error(err);
+      toast({ title: 'Error', description: 'No se pudo guardar la lección.' });
     }
-    setIsModalOpen(false);
   };
 
   const handleUpdateLesson = (updatedLesson: Lesson) => {
@@ -333,7 +345,7 @@ export default function CourseManagement() {
         onSave={handleSaveLesson}
         lesson={editingLesson}
       />
-      
+
       <DeleteConfirmationDialog
         isOpen={deleteDialog.isOpen}
         onClose={() => setDeleteDialog({ ...deleteDialog, isOpen: false })}

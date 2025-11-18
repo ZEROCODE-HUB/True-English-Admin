@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import DOMPurify from 'dompurify';
 import { ArrowLeft, Plus, Edit, Trash2, Upload, Eye, EyeOff, FileText, BookOpen, ChevronUp, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +21,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { Lesson, Note, Exercise, ExerciseOption } from "./CourseManagement";
+import type { Lesson, Note, Exercise, ExerciseOption, RPCGetLessonDetailResponse, RPCContentItem } from '@/types/db';
+import { supabase } from "@/lib/supabase";
 import ReactQuill from 'react-quill';
 import DeleteConfirmationDialog from "./DeleteConfirmationDialog";
 import { useToast } from "@/hooks/use-toast";
@@ -35,7 +37,7 @@ type ContentItem = (Note & { type: 'note' }) | (Exercise & { type: 'exercise' })
 
 const exerciseTypes = [
   "Vocabulario y pronunciación",
-  "Gramática y Ortografía", 
+  "Gramática y Ortografía",
   "Comprensión auditiva",
   "Comprensión lectora",
   "Expresión escrita",
@@ -43,7 +45,11 @@ const exerciseTypes = [
 ];
 
 export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDetailViewProps) {
-  const [currentLesson, setCurrentLesson] = useState<Lesson>(lesson);
+  const [currentLesson, setCurrentLesson] = useState<Lesson>({
+    ...lesson,
+    notas: lesson.notas || [],
+    ejercicios: lesson.ejercicios || []
+  });
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
   const [isExerciseModalOpen, setIsExerciseModalOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
@@ -51,7 +57,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
     onConfirm: () => void;
-  }>({ isOpen: false, onConfirm: () => {} });
+  }>({ isOpen: false, onConfirm: () => { } });
   const { toast } = useToast();
 
   const [noteForm, setNoteForm] = useState({
@@ -73,6 +79,58 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
     obligatorio: false,
     activo: true
   });
+
+  const loadDetail = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.rpc('get_lesson_detail', { p_lesson_id: lesson.id });
+      if (error) throw error;
+      const payload = data as RPCGetLessonDetailResponse;
+      const core = payload.lesson;
+      const content: RPCContentItem[] = payload.content || [];
+
+      const notas: Note[] = content.filter((c) => c.kind === 'note').map((n) => ({
+        id: n.id,
+        titulo: n.title || '',
+        descripcion: n.content || '',
+        imagenes: n.image_url ? [n.image_url] : [],
+        audios: n.audio_url ? [n.audio_url] : [],
+        activo: n.active || false,
+        orden: n.order || 0
+      }));
+
+      const ejercicios: Exercise[] = content.filter((c) => c.kind === 'exercise').map((e) => ({
+        id: e.id,
+        descripcion: e.title || '',
+        tipo: (e.type && exerciseTypes.includes(e.type)) ? e.type : exerciseTypes[0],
+        contenido: e.content || '',
+        imagenes: e.image_url ? [e.image_url] : [],
+        audios: e.audio_url ? [e.audio_url] : [],
+        opciones: (e.options || []).map((o) => ({ id: o.id, texto: o.text })),
+        respuestaCorrecta: e.correct_option_id || '',
+        obligatorio: e.mandatory || false,
+        activo: e.active || false,
+        orden: e.order || 0
+      }));
+
+      setCurrentLesson({
+        id: core.id,
+        titulo: core.title,
+        descripcion: core.description,
+        nivelAsociado: core.level,
+        obligatoria: core.mandatory,
+        fechaCreacion: core.created_at,
+        notas,
+        ejercicios
+      });
+    } catch (err) {
+      console.error('loadDetail error', err);
+      toast({ title: 'Error', description: 'No se pudo cargar el detalle de la lección.' });
+    }
+  }, [lesson.id, toast]);
+
+  useEffect(() => {
+    loadDetail();
+  }, [loadDetail]);
 
   // Combine notes and exercises into a single sorted array
   const contentItems: ContentItem[] = [
@@ -107,72 +165,82 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
       });
       return;
     }
-
-    const updatedLesson = { ...currentLesson };
-    
-    if (editingNote) {
-      updatedLesson.notas = updatedLesson.notas.map(note =>
-        note.id === editingNote.id ? { ...note, ...noteForm } : note
-      );
-    } else {
-      const newNote: Note = {
-        ...noteForm,
-        id: Date.now().toString(),
-        orden: [...updatedLesson.notas, ...updatedLesson.ejercicios].length
-      };
-      updatedLesson.notas = [...updatedLesson.notas, newNote];
-    }
-
-    setCurrentLesson(updatedLesson);
-    onUpdate(updatedLesson);
-    setIsNoteModalOpen(false);
-    
-    toast({
-      title: editingNote ? "Nota actualizada" : "Nota creada",
-      description: `La nota ha sido ${editingNote ? "actualizada" : "creada"} correctamente.`,
-    });
+    (async () => {
+      try {
+        if (editingNote) {
+          const { error } = await supabase.from('notes').update({
+            title: noteForm.titulo,
+            content: noteForm.descripcion,
+            image_url: noteForm.imagenes[0] || null,
+            audio_url: noteForm.audios[0] || null,
+            active: noteForm.activo
+          }).eq('id', editingNote.id);
+          if (error) throw error;
+          toast({ title: 'Nota actualizada', description: 'La nota ha sido actualizada correctamente.' });
+        } else {
+          const order = currentLesson.notas.length + currentLesson.ejercicios.length;
+          const { error } = await supabase.from('notes').insert([{
+            lesson_id: currentLesson.id,
+            title: noteForm.titulo,
+            content: noteForm.descripcion,
+            image_url: noteForm.imagenes[0] || null,
+            audio_url: noteForm.audios[0] || null,
+            active: noteForm.activo,
+            "order": order
+          }]);
+          if (error) throw error;
+          toast({ title: 'Nota creada', description: 'La nota ha sido creada correctamente.' });
+        }
+        setIsNoteModalOpen(false);
+        setEditingNote(null);
+        await loadDetail();
+      } catch (err) {
+        console.error(err);
+        toast({ title: 'Error', description: 'No se pudo guardar la nota.' });
+      }
+    })();
   };
 
   const handleDeleteNote = (noteId: string) => {
     setDeleteDialog({
       isOpen: true,
       onConfirm: () => {
-        const updatedLesson = {
-          ...currentLesson,
-          notas: currentLesson.notas.filter(note => note.id !== noteId)
-        };
-        setCurrentLesson(updatedLesson);
-        onUpdate(updatedLesson);
-        
-        toast({
-          title: "Nota eliminada",
-          description: "La nota ha sido eliminada correctamente.",
-        });
+        (async () => {
+          try {
+            const { error } = await supabase.from('notes').delete().eq('id', noteId);
+            if (error) throw error;
+            toast({ title: 'Nota eliminada', description: 'La nota ha sido eliminada correctamente.' });
+            await loadDetail();
+          } catch (err) {
+            console.error(err);
+            toast({ title: 'Error', description: 'No se pudo eliminar la nota.' });
+          }
+        })();
       },
     });
   };
 
   const handleToggleNoteActive = (noteId: string) => {
-    const updatedLesson = {
-      ...currentLesson,
-      notas: currentLesson.notas.map(note =>
-        note.id === noteId ? { ...note, activo: !note.activo } : note
-      )
-    };
-    setCurrentLesson(updatedLesson);
-    onUpdate(updatedLesson);
-    
-    toast({
-      title: "Estado actualizado",
-      description: "El estado de la nota ha sido actualizado.",
-    });
+    (async () => {
+      try {
+        const note = currentLesson.notas.find(n => n.id === noteId);
+        if (!note) return;
+        const { error } = await supabase.from('notes').update({ active: !note.activo }).eq('id', noteId);
+        if (error) throw error;
+        toast({ title: 'Estado actualizado', description: 'El estado de la nota ha sido actualizado.' });
+        await loadDetail();
+      } catch (err) {
+        console.error(err);
+        toast({ title: 'Error', description: 'No se pudo actualizar el estado.' });
+      }
+    })();
   };
 
   const handleCreateExercise = () => {
     setEditingExercise(null);
-    setExerciseForm({ 
+    setExerciseForm({
       descripcion: "",
-      tipo: exerciseTypes[0], 
+      tipo: exerciseTypes[0],
       contenido: "",
       imagenes: [],
       audios: [],
@@ -188,7 +256,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
     setEditingExercise(exercise);
     setExerciseForm({
       descripcion: exercise.descripcion,
-      tipo: exercise.tipo,
+      tipo: exerciseTypes.includes(exercise.tipo) ? exercise.tipo : exerciseTypes[0],
       contenido: exercise.contenido,
       imagenes: exercise.imagenes,
       audios: exercise.audios,
@@ -212,7 +280,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
 
     if (exerciseForm.opciones.length < 2) {
       toast({
-        title: "Error", 
+        title: "Error",
         description: "Se necesitan al menos 2 opciones de respuesta",
         variant: "destructive"
       });
@@ -228,64 +296,121 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
       return;
     }
 
-    const updatedLesson = { ...currentLesson };
-    
-    if (editingExercise) {
-      updatedLesson.ejercicios = updatedLesson.ejercicios.map(exercise =>
-        exercise.id === editingExercise.id ? { ...exercise, ...exerciseForm } : exercise
-      );
-    } else {
-      const newExercise: Exercise = {
-        ...exerciseForm,
-        id: Date.now().toString(),
-        orden: [...updatedLesson.notas, ...updatedLesson.ejercicios].length
-      };
-      updatedLesson.ejercicios = [...updatedLesson.ejercicios, newExercise];
-    }
+    (async () => {
+      try {
+        if (editingExercise) {
+          // update exercise
+          const { error: upErr } = await supabase.from('exercises').update({
+            description: exerciseForm.descripcion,
+            type: exerciseForm.tipo,
+            content: exerciseForm.contenido,
+            image_url: exerciseForm.imagenes[0] || null,
+            audio_url: exerciseForm.audios[0] || null,
+            mandatory: exerciseForm.obligatorio,
+            active: exerciseForm.activo,
+            "order": editingExercise.orden
+          }).eq('id', editingExercise.id);
+          if (upErr) throw upErr;
 
-    setCurrentLesson(updatedLesson);
-    onUpdate(updatedLesson);
-    setIsExerciseModalOpen(false);
-    
-    toast({
-      title: editingExercise ? "Ejercicio actualizado" : "Ejercicio creado",
-      description: `El ejercicio ha sido ${editingExercise ? "actualizado" : "creado"} correctamente.`,
-    });
+          // replace options: delete old and insert new
+          const { error: delOptErr } = await supabase.from('exercise_options').delete().eq('exercise_id', editingExercise.id);
+          if (delOptErr) throw delOptErr;
+
+          const inserted: Array<{ id: string; text: string }> = [];
+          for (let i = 0; i < exerciseForm.opciones.length; i++) {
+            const opt = exerciseForm.opciones[i];
+            const { data: insData, error: insErr } = await supabase.from('exercise_options').insert([{ exercise_id: editingExercise.id, text: opt.texto, "order": i }]).select().single();
+            if (insErr) throw insErr;
+            inserted.push({ id: (insData as { id: string; text: string }).id, text: (insData as { id: string; text: string }).text });
+          }
+
+          // update correct_option_id using the index of the selected option
+          const selectedIndex = exerciseForm.opciones.findIndex(p => p.id === exerciseForm.respuestaCorrecta);
+          const correctOpt = inserted[selectedIndex] || inserted[0];
+          if (correctOpt) {
+            const { error: updCor } = await supabase.from('exercises').update({ correct_option_id: correctOpt.id }).eq('id', editingExercise.id);
+            if (updCor) throw updCor;
+          }
+
+          toast({ title: 'Ejercicio actualizado', description: 'El ejercicio ha sido actualizado correctamente.' });
+        } else {
+          // create exercise
+          const order = currentLesson.notas.length + currentLesson.ejercicios.length;
+          const { data: exData, error: exErr } = await supabase.from('exercises').insert([{
+            lesson_id: currentLesson.id,
+            description: exerciseForm.descripcion,
+            type: exerciseForm.tipo,
+            content: exerciseForm.contenido,
+            image_url: exerciseForm.imagenes[0] || null,
+            audio_url: exerciseForm.audios[0] || null,
+            mandatory: exerciseForm.obligatorio,
+            active: exerciseForm.activo,
+            "order": order
+          }]).select().single();
+          if (exErr) throw exErr;
+
+          const inserted: Array<{ id: string; text: string }> = [];
+          for (let i = 0; i < exerciseForm.opciones.length; i++) {
+            const opt = exerciseForm.opciones[i];
+            const { data: insData, error: insErr } = await supabase.from('exercise_options').insert([{ exercise_id: exData.id, text: opt.texto, "order": i }]).select().single();
+            if (insErr) throw insErr;
+            inserted.push({ id: (insData as { id: string; text: string }).id, text: (insData as { id: string; text: string }).text });
+          }
+
+          // update correct_option_id using the index of the selected option
+          const idx = exerciseForm.opciones.findIndex(o => o.id === exerciseForm.respuestaCorrecta);
+          const correctOpt = inserted[idx] || inserted[0];
+          if (correctOpt) {
+            const { error: updCor } = await supabase.from('exercises').update({ correct_option_id: correctOpt.id }).eq('id', exData.id);
+            if (updCor) throw updCor;
+          }
+
+          toast({ title: 'Ejercicio creado', description: 'El ejercicio ha sido creado correctamente.' });
+        }
+
+        setIsExerciseModalOpen(false);
+        setEditingExercise(null);
+        await loadDetail();
+      } catch (err) {
+        console.error(err);
+        toast({ title: 'Error', description: 'No se pudo guardar el ejercicio.' });
+      }
+    })();
   };
 
   const handleDeleteExercise = (exerciseId: string) => {
     setDeleteDialog({
       isOpen: true,
       onConfirm: () => {
-        const updatedLesson = {
-          ...currentLesson,
-          ejercicios: currentLesson.ejercicios.filter(exercise => exercise.id !== exerciseId)
-        };
-        setCurrentLesson(updatedLesson);
-        onUpdate(updatedLesson);
-        
-        toast({
-          title: "Ejercicio eliminado",
-          description: "El ejercicio ha sido eliminado correctamente.",
-        });
+        (async () => {
+          try {
+            const { error } = await supabase.from('exercises').delete().eq('id', exerciseId);
+            if (error) throw error;
+            toast({ title: 'Ejercicio eliminado', description: 'El ejercicio ha sido eliminado correctamente.' });
+            await loadDetail();
+          } catch (err) {
+            console.error(err);
+            toast({ title: 'Error', description: 'No se pudo eliminar el ejercicio.' });
+          }
+        })();
       },
     });
   };
 
   const handleToggleExerciseActive = (exerciseId: string) => {
-    const updatedLesson = {
-      ...currentLesson,
-      ejercicios: currentLesson.ejercicios.map(exercise =>
-        exercise.id === exerciseId ? { ...exercise, activo: !exercise.activo } : exercise
-      )
-    };
-    setCurrentLesson(updatedLesson);
-    onUpdate(updatedLesson);
-    
-    toast({
-      title: "Estado actualizado",
-      description: "El estado del ejercicio ha sido actualizado.",
-    });
+    (async () => {
+      try {
+        const ex = currentLesson.ejercicios.find(e => e.id === exerciseId);
+        if (!ex) return;
+        const { error } = await supabase.from('exercises').update({ active: !ex.activo }).eq('id', exerciseId);
+        if (error) throw error;
+        toast({ title: 'Estado actualizado', description: 'El estado del ejercicio ha sido actualizado.' });
+        await loadDetail();
+      } catch (err) {
+        console.error(err);
+        toast({ title: 'Error', description: 'No se pudo actualizar el estado.' });
+      }
+    })();
   };
 
   const handleMoveUp = (itemId: string) => {
@@ -294,11 +419,11 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
 
     const updatedLesson = { ...currentLesson };
     const reorderedItems = [...contentItems];
-    
+
     // Swap with previous item
-    [reorderedItems[currentIndex - 1], reorderedItems[currentIndex]] = 
-    [reorderedItems[currentIndex], reorderedItems[currentIndex - 1]];
-    
+    [reorderedItems[currentIndex - 1], reorderedItems[currentIndex]] =
+      [reorderedItems[currentIndex], reorderedItems[currentIndex - 1]];
+
     // Update orden values for all items
     reorderedItems.forEach((item, index) => {
       item.orden = index;
@@ -308,13 +433,28 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
     updatedLesson.notas = reorderedItems
       .filter((item): item is Note & { type: 'note' } => item.type === 'note')
       .map(({ type, ...note }) => note);
-    
+
     updatedLesson.ejercicios = reorderedItems
       .filter((item): item is Exercise & { type: 'exercise' } => item.type === 'exercise')
       .map(({ type, ...exercise }) => exercise);
 
     setCurrentLesson(updatedLesson);
-    onUpdate(updatedLesson);
+    // persist orders
+    (async () => {
+      try {
+        // update notes
+        for (const n of updatedLesson.notas) {
+          await supabase.from('notes').update({ "order": n.orden }).eq('id', n.id);
+        }
+        for (const e of updatedLesson.ejercicios) {
+          await supabase.from('exercises').update({ "order": e.orden }).eq('id', e.id);
+        }
+        await loadDetail();
+      } catch (err) {
+        console.error('Error updating order', err);
+        toast({ title: 'Error', description: 'No se pudo actualizar el orden.' });
+      }
+    })();
   };
 
   const handleMoveDown = (itemId: string) => {
@@ -323,11 +463,11 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
 
     const updatedLesson = { ...currentLesson };
     const reorderedItems = [...contentItems];
-    
+
     // Swap with next item
-    [reorderedItems[currentIndex], reorderedItems[currentIndex + 1]] = 
-    [reorderedItems[currentIndex + 1], reorderedItems[currentIndex]];
-    
+    [reorderedItems[currentIndex], reorderedItems[currentIndex + 1]] =
+      [reorderedItems[currentIndex + 1], reorderedItems[currentIndex]];
+
     // Update orden values for all items
     reorderedItems.forEach((item, index) => {
       item.orden = index;
@@ -337,13 +477,26 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
     updatedLesson.notas = reorderedItems
       .filter((item): item is Note & { type: 'note' } => item.type === 'note')
       .map(({ type, ...note }) => note);
-    
+
     updatedLesson.ejercicios = reorderedItems
       .filter((item): item is Exercise & { type: 'exercise' } => item.type === 'exercise')
       .map(({ type, ...exercise }) => exercise);
 
     setCurrentLesson(updatedLesson);
-    onUpdate(updatedLesson);
+    (async () => {
+      try {
+        for (const n of updatedLesson.notas) {
+          await supabase.from('notes').update({ "order": n.orden }).eq('id', n.id);
+        }
+        for (const e of updatedLesson.ejercicios) {
+          await supabase.from('exercises').update({ "order": e.orden }).eq('id', e.id);
+        }
+        await loadDetail();
+      } catch (err) {
+        console.error('Error updating order', err);
+        toast({ title: 'Error', description: 'No se pudo actualizar el orden.' });
+      }
+    })();
   };
 
   const addOption = () => {
@@ -368,7 +521,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
   const updateOption = (optionId: string, texto: string) => {
     setExerciseForm(prev => ({
       ...prev,
-      opciones: prev.opciones.map(opt => 
+      opciones: prev.opciones.map(opt =>
         opt.id === optionId ? { ...opt, texto } : opt
       )
     }));
@@ -518,8 +671,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
 
             <div className="space-y-2">
               <Label>Tipo de Ejercicio</Label>
-              <Select 
-                value={exerciseForm.tipo} 
+              <Select
+                value={exerciseForm.tipo}
                 onValueChange={(value) => setExerciseForm(prev => ({ ...prev, tipo: value }))}
               >
                 <SelectTrigger>
@@ -547,7 +700,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
                     toolbar: [
                       [{ 'header': [1, 2, 3, false] }],
                       ['bold', 'italic', 'underline', 'strike'],
-                      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                      [{ 'list': 'ordered' }, { 'list': 'bullet' }],
                       [{ 'color': [] }, { 'background': [] }],
                       ['link', 'image'],
                       ['clean']
@@ -583,7 +736,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
                   Agregar Opción
                 </Button>
               </div>
-              
+
               {exerciseForm.opciones.length === 0 ? (
                 <p className="text-muted-foreground text-center py-4">
                   Agrega al menos 2 opciones de respuesta
@@ -651,7 +804,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
           </div>
         </DialogContent>
       </Dialog>
-      
+
       <DeleteConfirmationDialog
         isOpen={deleteDialog.isOpen}
         onClose={() => setDeleteDialog({ ...deleteDialog, isOpen: false })}
@@ -662,18 +815,18 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
 }
 
 // Content Item Component
-function ContentItem({ 
-  item, 
+function ContentItem({
+  item,
   isFirst,
   isLast,
   onMoveUp,
   onMoveDown,
-  onEditNote, 
-  onDeleteNote, 
+  onEditNote,
+  onDeleteNote,
   onToggleNoteActive,
-  onEditExercise, 
-  onDeleteExercise, 
-  onToggleExerciseActive 
+  onEditExercise,
+  onDeleteExercise,
+  onToggleExerciseActive
 }: {
   item: ContentItem;
   isFirst: boolean;
@@ -725,7 +878,7 @@ function ContentItem({
               </h3>
               {!item.activo && <EyeOff className="w-4 h-4 text-muted-foreground" />}
             </div>
-            
+
             {item.type === 'note' ? (
               <div>
                 <p className="text-sm text-muted-foreground mb-2">
@@ -749,6 +902,14 @@ function ContentItem({
                 <p className="text-sm text-muted-foreground mb-2">
                   {(item as Exercise).tipo}
                 </p>
+                {/* Render rich text content (stored as HTML) */}
+                {(item as Exercise).contenido ? (
+                  // Sanitize HTML before rendering to avoid XSS
+                  <div
+                    className="prose prose-sm min-h-[4rem] max-h-24 overflow-hidden mb-2"
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize((item as Exercise).contenido) }}
+                  />
+                ) : null}
                 <div className="flex gap-2">
                   <Badge variant={(item as Exercise).obligatorio ? "default" : "secondary"}>
                     {(item as Exercise).obligatorio ? "Obligatorio" : "Opcional"}

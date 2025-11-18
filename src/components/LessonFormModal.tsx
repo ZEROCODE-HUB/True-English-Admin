@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Lesson } from "./CourseManagement";
+import type { Lesson } from '@/types/db';
 
 interface LessonFormModalProps {
   isOpen: boolean;
@@ -108,8 +108,8 @@ export default function LessonFormModal({ isOpen, onClose, onSave, lesson }: Les
 
           <div className="space-y-2">
             <Label>Nivel Asociado</Label>
-            <Select 
-              value={formData.nivelAsociado} 
+            <Select
+              value={formData.nivelAsociado}
               onValueChange={(value) => setFormData(prev => ({ ...prev, nivelAsociado: value }))}
             >
               <SelectTrigger>

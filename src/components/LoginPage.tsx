@@ -1,24 +1,34 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-interface LoginPageProps {
-  onLogin: () => void;
-}
-
-export default function LoginPage({ onLogin }: LoginPageProps) {
+export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const navigate = useNavigate();
+  const { signIn } = useAuth();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (email === "admin@trueenglish.com" && password === "admin123") {
-      onLogin();
-    } else {
-      setError("Credenciales incorrectas");
+    setError("");
+    try {
+      const { data, error } = await signIn(email, password);
+      if (error) {
+        setError("Credenciales incorrectas");
+        return;
+      }
+      // On success redirect to dashboard
+      navigate("/dashboard");
+    } catch (err: unknown) {
+      let message = "Error al iniciar sesión";
+      if (err instanceof Error) message = err.message;
+      else if (typeof err === "string") message = err;
+      setError(message);
     }
   };
 
