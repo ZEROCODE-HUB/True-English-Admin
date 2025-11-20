@@ -130,7 +130,8 @@ export default function UserManagement() {
           nivelActual: p['nivel_actual'] ? String(p['nivel_actual']) : null,
           fechaRegistro: p['created_at'] ? String(p['created_at']) : null,
           estado: p['status'] ? String(p['status']) : null,
-          tipoUsuario: p['tipo'] ? String(p['tipo']) : null,
+          // normalize stored tipo to lowercase for consistent comparisons
+          tipoUsuario: p['tipo'] ? String(p['tipo']).toLowerCase() : null,
           codigoInvitacion: p['code'] ? String(p['code']) : null,
         }));
         setUsers(mapped);
@@ -196,7 +197,8 @@ export default function UserManagement() {
       birth_date: userData.fechaNacimiento ?? null,
       nivel_actual: userData.nivelActual ?? null,
       status: userData.estado ?? 'activo',
-      tipo: userData.tipoUsuario ?? 'Alumno',
+      // store tipo normalized to lowercase (e.g. 'alumno')
+      tipo: (userData.tipoUsuario ? String(userData.tipoUsuario) : 'alumno').toLowerCase(),
       code: userData.codigoInvitacion ?? null,
     };
 
@@ -314,7 +316,7 @@ export default function UserManagement() {
         nivelActual: p['nivel_actual'] ? String(p['nivel_actual']) : null,
         fechaRegistro: p['created_at'] ? String(p['created_at']) : null,
         estado: p['status'] ? String(p['status']) : null,
-        tipoUsuario: p['tipo'] ? String(p['tipo']) : null,
+        tipoUsuario: p['tipo'] ? String(p['tipo']).toLowerCase() : null,
         codigoInvitacion: p['code'] ? String(p['code']) : null,
       }));
       setInvitedStudents(mapped);
@@ -334,7 +336,8 @@ export default function UserManagement() {
       name: inviteName,
       email: inviteEmail,
       code: inviteCode,
-      tipo: 'Alumno',
+      // invitations should also store tipo normalized
+      tipo: 'alumno',
       status: 'invitado',
     };
 
@@ -527,7 +530,7 @@ export default function UserManagement() {
                   <TableCell>{user.apellido}</TableCell>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>
-                    <Badge variant={user.tipoUsuario === 'Alumno' ? 'default' : 'outline'}>
+                    <Badge variant={user.tipoUsuario === 'alumno' ? 'default' : 'outline'}>
                       {user.tipoUsuario}
                     </Badge>
                   </TableCell>
