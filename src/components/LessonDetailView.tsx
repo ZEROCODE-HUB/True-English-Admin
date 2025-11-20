@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import DOMPurify from 'dompurify';
 import { ArrowLeft, Plus, Edit, Trash2, Upload, Eye, EyeOff, FileText, BookOpen, ChevronUp, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -65,6 +65,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
     descripcion: "",
     imagenes: [] as string[],
     audios: [] as string[],
+    imagenFile: null as File | null,
+    audioFile: null as File | null,
     activo: true
   });
 
@@ -74,11 +76,96 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
     contenido: "",
     imagenes: [] as string[],
     audios: [] as string[],
+    imagenFile: null as File | null,
+    audioFile: null as File | null,
     opciones: [] as ExerciseOption[],
     respuestaCorrecta: "",
     obligatorio: false,
     activo: true
   });
+
+  // previews for selected or existing media
+  const [noteImagePreview, setNoteImagePreview] = useState<string | null>(null);
+  const [noteAudioPreview, setNoteAudioPreview] = useState<string | null>(null);
+  const [exerciseImagePreview, setExerciseImagePreview] = useState<string | null>(null);
+  const [exerciseAudioPreview, setExerciseAudioPreview] = useState<string | null>(null);
+
+  // input refs for hidden file inputs
+  const noteImageInputRef = useRef<HTMLInputElement | null>(null);
+  const noteAudioInputRef = useRef<HTMLInputElement | null>(null);
+  const exerciseImageInputRef = useRef<HTMLInputElement | null>(null);
+  const exerciseAudioInputRef = useRef<HTMLInputElement | null>(null);
+
+  // update previews when noteForm changes
+  useEffect(() => {
+    let imgUrl: string | null = null;
+    let audioUrl: string | null = null;
+
+    if (noteForm.imagenFile) {
+      imgUrl = URL.createObjectURL(noteForm.imagenFile);
+      setNoteImagePreview(imgUrl);
+    } else if (noteForm.imagenes && noteForm.imagenes.length > 0) {
+      setNoteImagePreview(noteForm.imagenes[0]);
+    } else {
+      setNoteImagePreview(null);
+    }
+
+    if (noteForm.audioFile) {
+      audioUrl = URL.createObjectURL(noteForm.audioFile);
+      setNoteAudioPreview(audioUrl);
+    } else if (noteForm.audios && noteForm.audios.length > 0) {
+      setNoteAudioPreview(noteForm.audios[0]);
+    } else {
+      setNoteAudioPreview(null);
+    }
+
+    return () => {
+      if (imgUrl) URL.revokeObjectURL(imgUrl);
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+    };
+  }, [noteForm.imagenFile, noteForm.imagenes, noteForm.audioFile, noteForm.audios]);
+
+  // update previews when exerciseForm changes
+  useEffect(() => {
+    let imgUrl: string | null = null;
+    let audioUrl: string | null = null;
+
+    if (exerciseForm.imagenFile) {
+      imgUrl = URL.createObjectURL(exerciseForm.imagenFile);
+      setExerciseImagePreview(imgUrl);
+    } else if (exerciseForm.imagenes && exerciseForm.imagenes.length > 0) {
+      setExerciseImagePreview(exerciseForm.imagenes[0]);
+    } else {
+      setExerciseImagePreview(null);
+    }
+
+    if (exerciseForm.audioFile) {
+      audioUrl = URL.createObjectURL(exerciseForm.audioFile);
+      setExerciseAudioPreview(audioUrl);
+    } else if (exerciseForm.audios && exerciseForm.audios.length > 0) {
+      setExerciseAudioPreview(exerciseForm.audios[0]);
+    } else {
+      setExerciseAudioPreview(null);
+    }
+
+    return () => {
+      if (imgUrl) URL.revokeObjectURL(imgUrl);
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+    };
+  }, [exerciseForm.imagenFile, exerciseForm.imagenes, exerciseForm.audioFile, exerciseForm.audios]);
+
+  // Storage bucket name (create this bucket in Supabase storage)
+  const STORAGE_BUCKET = 'lesson-media';
+
+  // Helper to upload a single file to Supabase storage and return its public URL
+  const uploadFile = async (file: File, path: string) => {
+    const filePath = `${path}/${Date.now()}_${file.name}`;
+    const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(filePath, file, { cacheControl: '3600', upsert: false });
+    if (upErr) throw upErr;
+    const { data: urlData, error: urlErr } = await supabase.storage.from(STORAGE_BUCKET).getPublicUrl(filePath);
+    if (urlErr) throw urlErr;
+    return urlData.publicUrl;
+  };
 
   const loadDetail = useCallback(async () => {
     try {
@@ -140,7 +227,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
 
   const handleCreateNote = () => {
     setEditingNote(null);
-    setNoteForm({ titulo: "", descripcion: "", imagenes: [], audios: [], activo: true });
+    setNoteForm({ titulo: "", descripcion: "", imagenes: [], audios: [], imagenFile: null, audioFile: null, activo: true });
     setIsNoteModalOpen(true);
   };
 
@@ -151,6 +238,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
       descripcion: note.descripcion,
       imagenes: note.imagenes,
       audios: note.audios,
+      imagenFile: null,
+      audioFile: null,
       activo: note.activo
     });
     setIsNoteModalOpen(true);
@@ -167,12 +256,23 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
     }
     (async () => {
       try {
+        // upload files if provided (note)
+        let imageUrl: string | null = noteForm.imagenes[0] || null;
+        let audioUrl: string | null = noteForm.audios[0] || null;
+
+        if (noteForm.imagenFile) {
+          imageUrl = await uploadFile(noteForm.imagenFile, `lessons/${currentLesson.id}/notes`);
+        }
+        if (noteForm.audioFile) {
+          audioUrl = await uploadFile(noteForm.audioFile, `lessons/${currentLesson.id}/notes`);
+        }
+
         if (editingNote) {
           const { error } = await supabase.from('notes').update({
             title: noteForm.titulo,
             content: noteForm.descripcion,
-            image_url: noteForm.imagenes[0] || null,
-            audio_url: noteForm.audios[0] || null,
+            image_url: imageUrl,
+            audio_url: audioUrl,
             active: noteForm.activo
           }).eq('id', editingNote.id);
           if (error) throw error;
@@ -183,8 +283,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
             lesson_id: currentLesson.id,
             title: noteForm.titulo,
             content: noteForm.descripcion,
-            image_url: noteForm.imagenes[0] || null,
-            audio_url: noteForm.audios[0] || null,
+            image_url: imageUrl,
+            audio_url: audioUrl,
             active: noteForm.activo,
             "order": order
           }]);
@@ -244,6 +344,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
       contenido: "",
       imagenes: [],
       audios: [],
+      imagenFile: null,
+      audioFile: null,
       opciones: [],
       respuestaCorrecta: "",
       obligatorio: false,
@@ -260,6 +362,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
       contenido: exercise.contenido,
       imagenes: exercise.imagenes,
       audios: exercise.audios,
+      imagenFile: null,
+      audioFile: null,
       opciones: exercise.opciones,
       respuestaCorrecta: exercise.respuestaCorrecta,
       obligatorio: exercise.obligatorio,
@@ -298,14 +402,25 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
 
     (async () => {
       try {
+        // upload files if provided (exercise)
+        let imageUrl: string | null = exerciseForm.imagenes[0] || null;
+        let audioUrl: string | null = exerciseForm.audios[0] || null;
+
+        if (exerciseForm.imagenFile) {
+          imageUrl = await uploadFile(exerciseForm.imagenFile, `lessons/${currentLesson.id}/exercises`);
+        }
+        if (exerciseForm.audioFile) {
+          audioUrl = await uploadFile(exerciseForm.audioFile, `lessons/${currentLesson.id}/exercises`);
+        }
+
         if (editingExercise) {
           // update exercise
           const { error: upErr } = await supabase.from('exercises').update({
             description: exerciseForm.descripcion,
             type: exerciseForm.tipo,
             content: exerciseForm.contenido,
-            image_url: exerciseForm.imagenes[0] || null,
-            audio_url: exerciseForm.audios[0] || null,
+            image_url: imageUrl,
+            audio_url: audioUrl,
             mandatory: exerciseForm.obligatorio,
             active: exerciseForm.activo,
             "order": editingExercise.orden
@@ -341,8 +456,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
             description: exerciseForm.descripcion,
             type: exerciseForm.tipo,
             content: exerciseForm.contenido,
-            image_url: exerciseForm.imagenes[0] || null,
-            audio_url: exerciseForm.audios[0] || null,
+            image_url: imageUrl,
+            audio_url: audioUrl,
             mandatory: exerciseForm.obligatorio,
             active: exerciseForm.activo,
             "order": order
@@ -619,16 +734,58 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Imágenes</Label>
-                <div className="border-2 border-dashed border-muted rounded-lg p-4 text-center">
-                  <Upload className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">Cargar imágenes</p>
+                <div className="border-2 border-dashed border-muted rounded-lg p-4 text-center min-h-28 flex flex-col items-center justify-center">
+                  {/* Show upload icon/label only when there is no saved image and no selected file */}
+                  {(!noteForm.imagenes || noteForm.imagenes.length === 0) && !noteForm.imagenFile ? (
+                    <>
+                      <Upload className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-xs text-muted-foreground">Imagen</p>
+                    </>
+                  ) : null}
+
+                  {noteForm.imagenFile && <p className="text-xs mt-2">Archivo: {noteForm.imagenFile.name}</p>}
+                  {/* Preview either selected local file or saved remote url */}
+                  {noteImagePreview && (
+                    <div className="mt-2 w-full flex justify-center">
+                      <img src={noteImagePreview} alt="preview" className="max-h-28 rounded object-contain" />
+                    </div>
+                  )}
+
+                  <div className="flex flex-col items-center justify-center gap-2 mt-2">
+                    <input ref={noteImageInputRef} className="hidden" type="file" accept="image/*" onChange={(e) => setNoteForm(prev => ({ ...prev, imagenFile: e.target.files && e.target.files[0] || null }))} />
+                    <Button size="sm" variant="outline" onClick={() => noteImageInputRef.current?.click()}>Seleccionar imagen</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setNoteForm(prev => ({ ...prev, imagenFile: null }))}>Quitar selección</Button>
+                    {noteForm.imagenes && noteForm.imagenes.length > 0 && (
+                      <Button size="sm" variant="destructive" onClick={() => setNoteForm(prev => ({ ...prev, imagenes: [] }))}>Eliminar guardada</Button>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="space-y-2">
                 <Label>Audio</Label>
-                <div className="border-2 border-dashed border-muted rounded-lg p-4 text-center">
-                  <Upload className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">Cargar audio</p>
+                <div className="border-2 border-dashed border-muted rounded-lg p-4 text-center min-h-28 flex flex-col items-center justify-center">
+                  {(!noteForm.audios || noteForm.audios.length === 0) && !noteForm.audioFile ? (
+                    <>
+                      <Upload className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-xs text-muted-foreground">Audio</p>
+                    </>
+                  ) : null}
+
+                  {noteForm.audioFile && <p className="text-xs mt-2">Archivo: {noteForm.audioFile.name}</p>}
+                  {noteAudioPreview && (
+                    <div className="mt-2 w-full flex justify-center">
+                      <audio controls src={noteAudioPreview} className="mx-auto" />
+                    </div>
+                  )}
+
+                  <div className="flex flex-col items-center justify-center gap-2 mt-2">
+                    <input ref={noteAudioInputRef} className="hidden" type="file" accept="audio/*" onChange={(e) => setNoteForm(prev => ({ ...prev, audioFile: e.target.files && e.target.files[0] || null }))} />
+                    <Button size="sm" variant="outline" onClick={() => noteAudioInputRef.current?.click()}>Seleccionar audio</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setNoteForm(prev => ({ ...prev, audioFile: null }))}>Quitar selección</Button>
+                    {noteForm.audios && noteForm.audios.length > 0 && (
+                      <Button size="sm" variant="destructive" onClick={() => setNoteForm(prev => ({ ...prev, audios: [] }))}>Eliminar guardada</Button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -714,16 +871,56 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Imágenes</Label>
-                <div className="border-2 border-dashed border-muted rounded-lg p-4 text-center">
-                  <Upload className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">Cargar imágenes</p>
+                <div className="border-2 border-dashed border-muted rounded-lg p-4 text-center min-h-28 flex flex-col items-center justify-center">
+                  {(!exerciseForm.imagenes || exerciseForm.imagenes.length === 0) && !exerciseForm.imagenFile ? (
+                    <>
+                      <Upload className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-xs text-muted-foreground">Imagen</p>
+                    </>
+                  ) : null}
+
+                  {exerciseForm.imagenFile && <p className="text-xs mt-2">Archivo: {exerciseForm.imagenFile.name}</p>}
+                  {exerciseImagePreview && (
+                    <div className="mt-2 w-full flex justify-center">
+                      <img src={exerciseImagePreview} alt="preview" className="max-h-28 rounded object-contain" />
+                    </div>
+                  )}
+
+                  <div className="flex flex-col items-center justify-center gap-2 mt-2">
+                    <input ref={exerciseImageInputRef} className="hidden" type="file" accept="image/*" onChange={(e) => setExerciseForm(prev => ({ ...prev, imagenFile: e.target.files && e.target.files[0] || null }))} />
+                    <Button size="sm" variant="outline" onClick={() => exerciseImageInputRef.current?.click()}>Seleccionar imagen</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setExerciseForm(prev => ({ ...prev, imagenFile: null }))}>Quitar selección</Button>
+                    {exerciseForm.imagenes && exerciseForm.imagenes.length > 0 && (
+                      <Button size="sm" variant="destructive" onClick={() => setExerciseForm(prev => ({ ...prev, imagenes: [] }))}>Eliminar guardada</Button>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="space-y-2">
                 <Label>Audio</Label>
-                <div className="border-2 border-dashed border-muted rounded-lg p-4 text-center">
-                  <Upload className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">Cargar audio</p>
+                <div className="border-2 border-dashed border-muted rounded-lg p-4 text-center min-h-28 flex flex-col items-center justify-center">
+                  {(!exerciseForm.audios || exerciseForm.audios.length === 0) && !exerciseForm.audioFile ? (
+                    <>
+                      <Upload className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-xs text-muted-foreground">Audio</p>
+                    </>
+                  ) : null}
+
+                  {exerciseForm.audioFile && <p className="text-xs mt-2">Archivo: {exerciseForm.audioFile.name}</p>}
+                  {exerciseAudioPreview && (
+                    <div className="mt-2 w-full flex justify-center">
+                      <audio controls src={exerciseAudioPreview} className="mx-auto" />
+                    </div>
+                  )}
+
+                  <div className="flex flex-col items-center justify-center gap-2 mt-2">
+                    <input ref={exerciseAudioInputRef} className="hidden" type="file" accept="audio/*" onChange={(e) => setExerciseForm(prev => ({ ...prev, audioFile: e.target.files && e.target.files[0] || null }))} />
+                    <Button size="sm" variant="outline" onClick={() => exerciseAudioInputRef.current?.click()}>Seleccionar audio</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setExerciseForm(prev => ({ ...prev, audioFile: null }))}>Quitar selección</Button>
+                    {exerciseForm.audios && exerciseForm.audios.length > 0 && (
+                      <Button size="sm" variant="destructive" onClick={() => setExerciseForm(prev => ({ ...prev, audios: [] }))}>Eliminar guardada</Button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
