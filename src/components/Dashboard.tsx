@@ -1,35 +1,26 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
-import { Users, UserPlus, BookOpen, Clock, Download, Eye, Bell } from "lucide-react";
+import { Users, UserPlus, Download, Eye, Bell, BookOpen, Clock } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import StudentDetailModal from "./StudentDetailModal";
-const kpiData = [{
-  title: "Usuarios Activos Hoy",
-  value: "247",
-  icon: Users,
-  color: "text-primary"
-}, {
-  title: "Nuevos Registros (7 días)",
-  value: "64",
-  icon: UserPlus,
-  color: "text-accent"
-}, {
-  title: "Lecciones Completadas Hoy",
-  value: "1,429",
-  icon: BookOpen,
-  color: "text-success"
-}, {
-  title: "Tiempo Promedio de Sesión",
-  value: "24 min",
-  icon: Clock,
-  color: "text-warning"
-}];
+// KPI state (we show two KPIs: total users and new registrations in last 7 days)
+const initialKpis = [
+  { title: "Usuarios Totales", value: "—", icon: Users, color: "text-primary" },
+  { title: "Nuevos Registros (7 días)", value: "—", icon: UserPlus, color: "text-accent" },
+];
+
+// Keep the previous hardcoded KPIs as requested
+const staticKpis = [
+  { title: "Lecciones Completadas Hoy", value: "1,429", icon: BookOpen, color: "text-success" },
+  { title: "Tiempo Promedio de Sesión", value: "24 min", icon: Clock, color: "text-warning" },
+];
 
 interface Student {
   id: string;
@@ -147,6 +138,31 @@ export default function Dashboard() {
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const itemsPerPage = 5;
 
+  const [kpis, setKpis] = useState(initialKpis);
+
+  // Load counts from profiles: total users and new registrations in last 7 days
+  const loadKpis = async () => {
+    try {
+      // total count
+      const { count: totalCount } = await supabase.from('profiles').select('id', { count: 'exact' });
+
+      // new in last 7 days
+      const since = new Date();
+      since.setDate(since.getDate() - 7);
+      const sinceIso = since.toISOString();
+      const { count: newCount } = await supabase.from('profiles').select('id', { count: 'exact' }).gte('created_at', sinceIso);
+
+      setKpis([
+        { title: 'Usuarios Totales', value: String(totalCount ?? 0), icon: Users, color: 'text-primary' },
+        { title: 'Nuevos Registros (7 días)', value: String(newCount ?? 0), icon: UserPlus, color: 'text-accent' }
+      ]);
+    } catch (err) {
+      console.error('failed to load dashboard kpis', err);
+    }
+  };
+
+  useEffect(() => { loadKpis(); }, []);
+
   const filteredStudents = mockStudents.filter(student => {
     const matchesName = student.nombre.toLowerCase().includes(nameFilter.toLowerCase());
     const matchesLevel = levelFilter === "all" || student.nivelActual === levelFilter;
@@ -162,7 +178,7 @@ export default function Dashboard() {
     const headers = ["Nombre", "Nivel Actual", "Empresa", "Última Lección", "Puntos Acumulados", "Tiempo Dedicado"];
     const csvContent = [
       headers.join(","),
-      ...filteredStudents.map(s => 
+      ...filteredStudents.map(s =>
         `"${s.nombre}","${s.nivelActual}","${s.empresa}","${s.ultimaLeccion}",${s.puntosAcumulados},"${s.tiempoDedicado}"`
       )
     ].join("\n");
@@ -175,214 +191,226 @@ export default function Dashboard() {
   };
 
   return <div className="space-y-6">
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Panel de Control</h1>
-          <p className="text-muted-foreground">Bienvenido al panel de administración de TrueEnglish Academy</p>
-        </div>
-        
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="icon" className="relative">
-              <Bell className="h-5 w-5" />
-              {mockNotifications.length > 0 && (
-                <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs">
-                  {mockNotifications.length}
-                </Badge>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-96" align="end">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-foreground">Últimas Actividades</h3>
-                <Badge variant="secondary">{mockNotifications.length}</Badge>
-              </div>
-              <div className="space-y-3 max-h-96 overflow-y-auto">
-                {mockNotifications.map((notification) => (
-                  <div key={notification.id} className="flex gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
-                    <div className="flex-shrink-0 mt-1">
-                      {notification.tipo === "lesson" && <BookOpen className="h-4 w-4 text-primary" />}
-                      {notification.tipo === "exam" && <Users className="h-4 w-4 text-accent" />}
-                      {notification.tipo === "achievement" && <Clock className="h-4 w-4 text-success" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-foreground">{notification.mensaje}</p>
-                      <p className="text-xs text-muted-foreground mt-1">{notification.tiempo}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+    <div className="flex justify-between items-start">
+      <div>
+        <h1 className="text-3xl font-bold text-foreground">Panel de Control</h1>
+        <p className="text-muted-foreground">Bienvenido al panel de administración de TrueEnglish Academy</p>
+      </div>
+
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="icon" className="relative">
+            <Bell className="h-5 w-5" />
+            {mockNotifications.length > 0 && (
+              <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs">
+                {mockNotifications.length}
+              </Badge>
+            )}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-96" align="end">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-foreground">Últimas Actividades</h3>
+              <Badge variant="secondary">{mockNotifications.length}</Badge>
             </div>
-          </PopoverContent>
-        </Popover>
-      </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {kpiData.map((kpi, index) => <Card key={index} className="shadow-card">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {kpi.title}
-              </CardTitle>
-              <kpi.icon className={`h-5 w-5 ${kpi.color}`} />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-foreground">{kpi.value}</div>
-            </CardContent>
-          </Card>)}
-      </div>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        
-        <Card className="shadow-card">
-          <CardHeader>
-            <CardTitle>Estadísticas de Uso</CardTitle>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {mockNotifications.map((notification) => (
+                <div key={notification.id} className="flex gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+                  <div className="flex-shrink-0 mt-1">
+                    {notification.tipo === "lesson" && <BookOpen className="h-4 w-4 text-primary" />}
+                    {notification.tipo === "exam" && <Users className="h-4 w-4 text-accent" />}
+                    {notification.tipo === "achievement" && <Clock className="h-4 w-4 text-success" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-foreground">{notification.mensaje}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{notification.tiempo}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {kpis.map((kpi, index) => (
+        <Card key={`dyn-${index}`} className="shadow-card">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">{kpi.title}</CardTitle>
+            <kpi.icon className={`h-5 w-5 ${kpi.color}`} />
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              <div>
-                <div className="flex justify-between text-sm">
-                  <span>Nivel A1</span>
-                  <span>45%</span>
-                </div>
-                <div className="w-full bg-muted rounded-full h-2">
-                  <div className="bg-primary h-2 rounded-full" style={{
-                  width: '45%'
-                }}></div>
-                </div>
-              </div>
-              <div>
-                <div className="flex justify-between text-sm">
-                  <span>Nivel B1</span>
-                  <span>30%</span>
-                </div>
-                <div className="w-full bg-muted rounded-full h-2">
-                  <div className="bg-accent h-2 rounded-full" style={{
-                  width: '30%'
-                }}></div>
-                </div>
-              </div>
-            </div>
+            <div className="text-2xl font-bold text-foreground">{kpi.value}</div>
           </CardContent>
         </Card>
-      </div>
+      ))}
+
+      {staticKpis.map((kpi, index) => (
+        <Card key={`static-${index}`} className="shadow-card">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">{kpi.title}</CardTitle>
+            <kpi.icon className={`h-5 w-5 ${kpi.color}`} />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-foreground">{kpi.value}</div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
 
       <Card className="shadow-card">
         <CardHeader>
-          <CardTitle>Desempeño de Alumnos</CardTitle>
+          <CardTitle>Estadísticas de Uso</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex gap-4 flex-wrap">
-            <div className="flex-1 min-w-[200px]">
-              <Input
-                placeholder="Buscar por nombre..."
-                value={nameFilter}
-                onChange={(e) => setNameFilter(e.target.value)}
-              />
+        <CardContent>
+          <div className="space-y-4">
+            <div>
+              <div className="flex justify-between text-sm">
+                <span>Nivel A1</span>
+                <span>45%</span>
+              </div>
+              <div className="w-full bg-muted rounded-full h-2">
+                <div className="bg-primary h-2 rounded-full" style={{
+                  width: '45%'
+                }}></div>
+              </div>
             </div>
-            <div className="w-48">
-              <Select value={levelFilter} onValueChange={setLevelFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Filtrar por nivel" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los niveles</SelectItem>
-                  <SelectItem value="A1">A1</SelectItem>
-                  <SelectItem value="A2">A2</SelectItem>
-                  <SelectItem value="B1">B1</SelectItem>
-                  <SelectItem value="B2">B2</SelectItem>
-                  <SelectItem value="C1">C1</SelectItem>
-                  <SelectItem value="C2">C2</SelectItem>
-                </SelectContent>
-              </Select>
+            <div>
+              <div className="flex justify-between text-sm">
+                <span>Nivel B1</span>
+                <span>30%</span>
+              </div>
+              <div className="w-full bg-muted rounded-full h-2">
+                <div className="bg-accent h-2 rounded-full" style={{
+                  width: '30%'
+                }}></div>
+              </div>
             </div>
-            <div className="flex-1 min-w-[200px]">
-              <Input
-                placeholder="Buscar por empresa..."
-                value={companyFilter}
-                onChange={(e) => setCompanyFilter(e.target.value)}
-              />
-            </div>
-            <Button onClick={handleExportCSV} variant="outline">
-              <Download className="w-4 h-4 mr-2" />
-              Exportar CSV
-            </Button>
           </div>
-
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nombre</TableHead>
-                <TableHead>Nivel Actual</TableHead>
-                <TableHead>Empresa</TableHead>
-                <TableHead>Última Lección</TableHead>
-                <TableHead>Puntos</TableHead>
-                <TableHead>Tiempo Dedicado</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {paginatedStudents.map((student) => (
-                <TableRow key={student.id}>
-                  <TableCell className="font-medium">{student.nombre}</TableCell>
-                  <TableCell>{student.nivelActual}</TableCell>
-                  <TableCell>{student.empresa}</TableCell>
-                  <TableCell>{student.ultimaLeccion}</TableCell>
-                  <TableCell>{student.puntosAcumulados}</TableCell>
-                  <TableCell>{student.tiempoDedicado}</TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setSelectedStudent(student)}
-                    >
-                      <Eye className="w-4 h-4 mr-2" />
-                      Ver más
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-
-          {totalPages > 1 && (
-            <Pagination>
-              <PaginationContent>
-                <PaginationItem>
-                  <PaginationPrevious
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                  />
-                </PaginationItem>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                  <PaginationItem key={page}>
-                    <PaginationLink
-                      onClick={() => setCurrentPage(page)}
-                      isActive={currentPage === page}
-                      className="cursor-pointer"
-                    >
-                      {page}
-                    </PaginationLink>
-                  </PaginationItem>
-                ))}
-                <PaginationItem>
-                  <PaginationNext
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                  />
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
-          )}
         </CardContent>
       </Card>
+    </div>
 
-      {selectedStudent && (
-        <StudentDetailModal
-          student={selectedStudent}
-          onClose={() => setSelectedStudent(null)}
-        />
-      )}
-    </div>;
+    <Card className="shadow-card">
+      <CardHeader>
+        <CardTitle>Desempeño de Alumnos</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex gap-4 flex-wrap">
+          <div className="flex-1 min-w-[200px]">
+            <Input
+              placeholder="Buscar por nombre..."
+              value={nameFilter}
+              onChange={(e) => setNameFilter(e.target.value)}
+            />
+          </div>
+          <div className="w-48">
+            <Select value={levelFilter} onValueChange={setLevelFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Filtrar por nivel" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los niveles</SelectItem>
+                <SelectItem value="A1">A1</SelectItem>
+                <SelectItem value="A2">A2</SelectItem>
+                <SelectItem value="B1">B1</SelectItem>
+                <SelectItem value="B2">B2</SelectItem>
+                <SelectItem value="C1">C1</SelectItem>
+                <SelectItem value="C2">C2</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex-1 min-w-[200px]">
+            <Input
+              placeholder="Buscar por empresa..."
+              value={companyFilter}
+              onChange={(e) => setCompanyFilter(e.target.value)}
+            />
+          </div>
+          <Button onClick={handleExportCSV} variant="outline">
+            <Download className="w-4 h-4 mr-2" />
+            Exportar CSV
+          </Button>
+        </div>
+
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Nombre</TableHead>
+              <TableHead>Nivel Actual</TableHead>
+              <TableHead>Empresa</TableHead>
+              <TableHead>Última Lección</TableHead>
+              <TableHead>Puntos</TableHead>
+              <TableHead>Tiempo Dedicado</TableHead>
+              <TableHead className="text-right">Acciones</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {paginatedStudents.map((student) => (
+              <TableRow key={student.id}>
+                <TableCell className="font-medium">{student.nombre}</TableCell>
+                <TableCell>{student.nivelActual}</TableCell>
+                <TableCell>{student.empresa}</TableCell>
+                <TableCell>{student.ultimaLeccion}</TableCell>
+                <TableCell>{student.puntosAcumulados}</TableCell>
+                <TableCell>{student.tiempoDedicado}</TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedStudent(student)}
+                  >
+                    <Eye className="w-4 h-4 mr-2" />
+                    Ver más
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+
+        {totalPages > 1 && (
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                />
+              </PaginationItem>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                <PaginationItem key={page}>
+                  <PaginationLink
+                    onClick={() => setCurrentPage(page)}
+                    isActive={currentPage === page}
+                    className="cursor-pointer"
+                  >
+                    {page}
+                  </PaginationLink>
+                </PaginationItem>
+              ))}
+              <PaginationItem>
+                <PaginationNext
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        )}
+      </CardContent>
+    </Card>
+
+    {selectedStudent && (
+      <StudentDetailModal
+        student={selectedStudent}
+        onClose={() => setSelectedStudent(null)}
+      />
+    )}
+  </div>;
 }

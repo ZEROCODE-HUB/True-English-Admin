@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -13,6 +13,7 @@ import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarMenu
 
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/lib/supabase";
 
 const menuItems = [
   { id: "dashboard", title: "Panel de Control", icon: LayoutDashboard },
@@ -31,6 +32,29 @@ export default function AdminLayout() {
   };
 
   const { signOut } = useAuth();
+
+  const { user } = useAuth();
+  const [profile, setProfile] = useState<{ name?: string | null; last_name?: string | null; email?: string | null; avatar_url?: string | null } | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadProfile = async () => {
+      if (!user?.id) return setProfile(null);
+      try {
+        const { data, error } = await supabase.from('profiles').select('name,last_name,email,avatar_url').eq('id', user.id).maybeSingle();
+        if (error) {
+          console.error('failed to load profile', error);
+          return;
+        }
+        if (!mounted) return;
+        setProfile(data ?? null);
+      } catch (e) {
+        console.error('failed to load profile', e);
+      }
+    };
+    loadProfile();
+    return () => { mounted = false };
+  }, [user]);
 
   const handleLogout = async () => {
     await signOut();
@@ -76,6 +100,21 @@ export default function AdminLayout() {
             </SidebarGroup>
 
             <div className="mt-auto p-4 border-t border-sidebar-border">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center overflow-hidden">
+                  {profile?.avatar_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={profile.avatar_url} alt="avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-accent-foreground font-bold">{(profile?.name ? profile.name[0] : (user?.email ? user.email[0] : 'U')).toUpperCase()}</span>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-sidebar-foreground">{profile?.name ? `${profile.name}${profile.last_name ? ' ' + profile.last_name : ''}` : user?.email}</div>
+                  <div className="text-xs text-sidebar-foreground/80">{profile?.email ?? user?.email}</div>
+                </div>
+              </div>
+
               <Button
                 onClick={handleLogout}
                 className="w-full justify-start bg-[hsl(220,70%,25%)] text-white hover:bg-[hsl(220,70%,25%)] border-0"
