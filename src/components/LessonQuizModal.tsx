@@ -23,6 +23,7 @@ export default function LessonQuizModal({
   question,
   lessons: propsLessons = []
 }: LessonQuizModalProps) {
+  const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({
     lessonId: "",
     lessonTitle: "",
@@ -71,14 +72,20 @@ export default function LessonQuizModal({
   };
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (validateForm()) {
-      // Filter out empty options before saving
-      const validOptions = formData.opciones.filter(opt => opt.trim() !== "");
-      onSave({
-        ...formData,
-        opciones: validOptions
-      });
-    }
+    if (isSaving) return;
+    if (!validateForm()) return;
+    const validOptions = formData.opciones.filter(opt => opt.trim() !== "");
+    (async () => {
+      setIsSaving(true);
+      try {
+        await Promise.resolve(onSave({
+          ...formData,
+          opciones: validOptions
+        }) as any);
+      } finally {
+        setIsSaving(false);
+      }
+    })();
   };
   const handleLessonChange = (lessonId: string) => {
     const lesson = (propsLessons || []).find(l => l.id === lessonId);
@@ -223,11 +230,11 @@ export default function LessonQuizModal({
 
 
         <div className="flex justify-end gap-3 pt-4">
-          <Button type="button" variant="outline" onClick={onClose}>
+          <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
             Cancelar
           </Button>
-          <Button type="submit" className="bg-primary hover:bg-primary-hover">
-            {question ? "Actualizar" : "Crear"} Pregunta
+          <Button type="submit" className="bg-primary hover:bg-primary-hover" disabled={isSaving}>
+            {isSaving ? (question ? 'Actualizando...' : 'Creando...') : (question ? "Actualizar" : "Crear") + ' Pregunta'}
           </Button>
         </div>
       </form>

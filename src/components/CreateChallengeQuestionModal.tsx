@@ -14,6 +14,7 @@ interface CreateChallengeQuestionModalProps {
 }
 
 export default function CreateChallengeQuestionModal({ isOpen, onClose, onSave, question }: CreateChallengeQuestionModalProps) {
+  const [isSaving, setIsSaving] = useState(false);
   const [pregunta, setPregunta] = useState("");
   const [imagen, setImagen] = useState<string | undefined>(undefined);
   const [audio, setAudio] = useState<string | undefined>(undefined);
@@ -75,16 +76,24 @@ export default function CreateChallengeQuestionModal({ isOpen, onClose, onSave, 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
-    onSave({
-      pregunta: pregunta.trim(),
-      imagen,
-      audio,
-      imageFile,
-      audioFile,
-      opciones: opciones.map(o => o.trim()),
-      respuestaCorrecta,
-      activa
-    });
+    if (isSaving) return;
+    (async () => {
+      setIsSaving(true);
+      try {
+        await Promise.resolve(onSave({
+          pregunta: pregunta.trim(),
+          imagen,
+          audio,
+          imageFile,
+          audioFile,
+          opciones: opciones.map(o => o.trim()),
+          respuestaCorrecta,
+          activa
+        }) as any);
+      } finally {
+        setIsSaving(false);
+      }
+    })();
   };
 
   return (
@@ -136,8 +145,8 @@ export default function CreateChallengeQuestionModal({ isOpen, onClose, onSave, 
           </div>
 
           <div className="flex justify-end gap-3 pt-4">
-            <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
-            <Button type="submit" className="bg-primary hover:bg-primary-hover">Crear Pregunta</Button>
+            <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>Cancelar</Button>
+            <Button type="submit" className="bg-primary hover:bg-primary-hover" disabled={isSaving}>{isSaving ? 'Guardando...' : (question ? 'Actualizar Pregunta' : 'Crear Pregunta')}</Button>
           </div>
         </form>
       </DialogContent>

@@ -12,6 +12,7 @@ import {
 } from "react-router-dom";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
+import ResetPassword from "./pages/ResetPassword";
 import LoginPage from "@/components/LoginPage";
 import AdminLayout from "@/components/AdminLayout";
 import Dashboard from "@/components/Dashboard";
@@ -43,6 +44,8 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<LoginPage />} />
+
+            <Route path="/reset-password" element={<ResetPassword />} />
 
             {/* Protected routes wrapped by AdminLayout */}
             <Route

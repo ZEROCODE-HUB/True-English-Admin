@@ -22,6 +22,7 @@ export default function CreateChallengeModal({ isOpen, onClose, onSave, lessons,
     lessonId: "",
     activo: true
   });
+  const [isSaving, setIsSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -54,12 +55,20 @@ export default function CreateChallengeModal({ isOpen, onClose, onSave, lessons,
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
-    onSave({
-      titulo: formData.titulo,
-      nivel: formData.nivel as any,
-      lessonId: formData.lessonId,
-      activo: formData.activo
-    });
+    if (isSaving) return;
+    (async () => {
+      setIsSaving(true);
+      try {
+        await Promise.resolve(onSave({
+          titulo: formData.titulo,
+          nivel: formData.nivel as any,
+          lessonId: formData.lessonId,
+          activo: formData.activo
+        }) as any);
+      } finally {
+        setIsSaving(false);
+      }
+    })();
   };
 
   return (
@@ -125,8 +134,8 @@ export default function CreateChallengeModal({ isOpen, onClose, onSave, lessons,
           </div>
 
           <div className="flex justify-end gap-3 pt-4">
-            <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
-            <Button type="submit" className="bg-primary hover:bg-primary-hover">Crear Desafío</Button>
+            <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>Cancelar</Button>
+            <Button type="submit" className="bg-primary hover:bg-primary-hover" disabled={isSaving}>{isSaving ? (challenge ? 'Actualizando...' : 'Creando...') : 'Crear Desafío'}</Button>
           </div>
         </form>
       </DialogContent>

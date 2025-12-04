@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import DOMPurify from 'dompurify';
-import { ArrowLeft, Plus, Edit, Trash2, Upload, Eye, EyeOff, FileText, BookOpen, ChevronUp, ChevronDown } from "lucide-react";
+import { ArrowLeft, Plus, Edit, Trash2, Upload, Eye, EyeOff, FileText, BookOpen, ChevronUp, ChevronDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -215,6 +215,9 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
     }
   }, [lesson.id, toast]);
 
+  const [isNoteSaving, setIsNoteSaving] = useState(false);
+  const [isExerciseSaving, setIsExerciseSaving] = useState(false);
+
   useEffect(() => {
     loadDetail();
   }, [loadDetail]);
@@ -246,6 +249,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
   };
 
   const handleSaveNote = () => {
+    if (isNoteSaving) return;
     if (!noteForm.titulo.trim()) {
       toast({
         title: "Error",
@@ -255,6 +259,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
       return;
     }
     (async () => {
+      setIsNoteSaving(true);
       try {
         // upload files if provided (note)
         let imageUrl: string | null = noteForm.imagenes[0] || null;
@@ -297,6 +302,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
       } catch (err) {
         console.error(err);
         toast({ title: 'Error', description: 'No se pudo guardar la nota.' });
+      } finally {
+        setIsNoteSaving(false);
       }
     })();
   };
@@ -373,6 +380,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
   };
 
   const handleSaveExercise = () => {
+    if (isExerciseSaving) return;
     if (!exerciseForm.descripcion.trim()) {
       toast({
         title: "Error",
@@ -401,6 +409,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
     }
 
     (async () => {
+      setIsExerciseSaving(true);
       try {
         // upload files if provided (exercise)
         let imageUrl: string | null = exerciseForm.imagenes[0] || null;
@@ -489,6 +498,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
       } catch (err) {
         console.error(err);
         toast({ title: 'Error', description: 'No se pudo guardar el ejercicio.' });
+      } finally {
+        setIsExerciseSaving(false);
       }
     })();
   };
@@ -797,11 +808,11 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
               <Label>Nota Activa</Label>
             </div>
             <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setIsNoteModalOpen(false)}>
+              <Button variant="outline" onClick={() => setIsNoteModalOpen(false)} disabled={isNoteSaving}>
                 Cancelar
               </Button>
-              <Button onClick={handleSaveNote}>
-                {editingNote ? "Actualizar" : "Crear"} Nota
+              <Button onClick={handleSaveNote} disabled={isNoteSaving}>
+                {isNoteSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{editingNote ? 'Actualizando...' : 'Guardando...'}</> : (editingNote ? "Actualizar" : "Crear") + ' Nota'}
               </Button>
             </div>
           </div>
@@ -991,11 +1002,11 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
             </div>
 
             <div className="flex justify-end gap-3 pt-4">
-              <Button variant="outline" onClick={() => setIsExerciseModalOpen(false)}>
+              <Button variant="outline" onClick={() => setIsExerciseModalOpen(false)} disabled={isExerciseSaving}>
                 Cancelar
               </Button>
-              <Button onClick={handleSaveExercise}>
-                {editingExercise ? "Actualizar" : "Crear"} Ejercicio
+              <Button onClick={handleSaveExercise} disabled={isExerciseSaving}>
+                {isExerciseSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{editingExercise ? 'Actualizando...' : 'Guardando...'}</> : (editingExercise ? "Actualizar" : "Crear") + ' Ejercicio'}
               </Button>
             </div>
           </div>

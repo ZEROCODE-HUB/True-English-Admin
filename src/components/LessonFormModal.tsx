@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,6 +28,7 @@ interface LessonFormModalProps {
 }
 
 export default function LessonFormModal({ isOpen, onClose, onSave, lesson }: LessonFormModalProps) {
+  const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({
     titulo: "",
     descripcion: "",
@@ -67,10 +69,17 @@ export default function LessonFormModal({ isOpen, onClose, onSave, lesson }: Les
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (validateForm()) {
-      onSave(formData);
-      onClose();
-    }
+    if (isSaving) return;
+    if (!validateForm()) return;
+    (async () => {
+      setIsSaving(true);
+      try {
+        await Promise.resolve(onSave(formData) as any);
+        onClose();
+      } finally {
+        setIsSaving(false);
+      }
+    })();
   };
 
   return (
@@ -136,11 +145,11 @@ export default function LessonFormModal({ isOpen, onClose, onSave, lesson }: Les
           </div>
 
           <div className="flex justify-end gap-3 pt-4">
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
               Cancelar
             </Button>
-            <Button type="submit" className="bg-primary hover:bg-primary-hover">
-              {lesson ? "Actualizar" : "Crear"} Lección
+            <Button type="submit" className="bg-primary hover:bg-primary-hover" disabled={isSaving}>
+              {isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{lesson ? 'Actualizando...' : 'Creando...'}</> : (lesson ? "Actualizar" : "Crear") + ' Lección'}
             </Button>
           </div>
         </form>

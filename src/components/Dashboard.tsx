@@ -139,6 +139,7 @@ export default function Dashboard() {
   const itemsPerPage = 5;
 
   const [kpis, setKpis] = useState(initialKpis);
+  const [levelStats, setLevelStats] = useState<Record<string, { count: number; percent: number }>>({});
 
   // Load counts from profiles: total users and new registrations in last 7 days
   const loadKpis = async () => {
@@ -161,7 +162,34 @@ export default function Dashboard() {
     }
   };
 
-  useEffect(() => { loadKpis(); }, []);
+  const loadLevelStats = async () => {
+    try {
+      const { data, error } = await supabase.from('profiles').select('nivel_actual');
+      if (error) throw error;
+
+      const rows = data ?? [];
+      const counts: Record<string, number> = {};
+      const allowedLevels = new Set(["A1", "A2", "B1", "B2", "C1", "C2"]);
+      rows.forEach((r: any) => {
+        const raw = (r?.nivel_actual ?? "").toString().trim();
+        const lvl = raw && allowedLevels.has(raw) ? raw : 'Sin nivel';
+        counts[lvl] = (counts[lvl] ?? 0) + 1;
+      });
+
+      const total = Object.values(counts).reduce((s, v) => s + v, 0) || 0;
+      const stats: Record<string, { count: number; percent: number }> = {};
+      Object.entries(counts).forEach(([lvl, count]) => {
+        const percent = total > 0 ? Math.round((count / total) * 100) : 0;
+        stats[lvl] = { count, percent };
+      });
+
+      setLevelStats(stats);
+    } catch (err) {
+      console.error('failed to load level stats', err);
+    }
+  };
+
+  useEffect(() => { loadKpis(); loadLevelStats(); }, []);
 
   const filteredStudents = mockStudents.filter(student => {
     const matchesName = student.nombre.toLowerCase().includes(nameFilter.toLowerCase());
@@ -269,28 +297,26 @@ export default function Dashboard() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            <div>
-              <div className="flex justify-between text-sm">
-                <span>Nivel A1</span>
-                <span>45%</span>
-              </div>
-              <div className="w-full bg-muted rounded-full h-2">
-                <div className="bg-primary h-2 rounded-full" style={{
-                  width: '45%'
-                }}></div>
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-sm">
-                <span>Nivel B1</span>
-                <span>30%</span>
-              </div>
-              <div className="w-full bg-muted rounded-full h-2">
-                <div className="bg-accent h-2 rounded-full" style={{
-                  width: '30%'
-                }}></div>
-              </div>
-            </div>
+            {Object.keys(levelStats).length === 0 ? (
+              <div className="text-sm text-muted-foreground">No hay datos de niveles disponibles.</div>
+            ) : (
+              Object.entries(levelStats)
+                .sort((a, b) => b[1].percent - a[1].percent)
+                .map(([lvl, stats], idx) => {
+                  const colorClass = idx === 0 ? 'bg-primary' : idx === 1 ? 'bg-accent' : idx === 2 ? 'bg-success' : idx === 3 ? 'bg-warning' : 'bg-muted';
+                  return (
+                    <div key={lvl}>
+                      <div className="flex justify-between text-sm">
+                        <span>{lvl}</span>
+                        <span>{stats.percent}%</span>
+                      </div>
+                      <div className="w-full bg-muted rounded-full h-2">
+                        <div className={`${colorClass} h-2 rounded-full`} style={{ width: `${stats.percent}%` }} />
+                      </div>
+                    </div>
+                  );
+                })
+            )}
           </div>
         </CardContent>
       </Card>
