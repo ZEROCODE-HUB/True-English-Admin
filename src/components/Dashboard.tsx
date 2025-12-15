@@ -16,86 +16,24 @@ const initialKpis = [
   { title: "Nuevos Registros (7 días)", value: "—", icon: UserPlus, color: "text-accent" },
 ];
 
-// Keep the previous hardcoded KPIs as requested
-const staticKpis = [
-  { title: "Lecciones Completadas Hoy", value: "1,429", icon: BookOpen, color: "text-success" },
-  { title: "Tiempo Promedio de Sesión", value: "24 min", icon: Clock, color: "text-warning" },
-];
+// Keep the previous hardcoded KPI label for session time; lessons completed will be fetched
+const staticKpiSession = { title: "Tiempo Promedio de Sesión", value: "24 min", icon: Clock, color: "text-warning" };
 
 interface Student {
   id: string;
   nombre: string;
-  nivelActual: string;
-  empresa: string;
-  ultimaLeccion: string;
+  nivelActual: string | null;
+  empresa: string | null;
+  ultimaLeccion: string | null;
   puntosAcumulados: number;
-  tiempoDedicado: string;
+  tiempoDedicado: string; // HH:MM:SS
+  tiempoDedicadoHuman?: string; // e.g. "2 Horas 15 Mins"
   correo: string;
   testsRealizados: { nombre: string; calificacion: number }[];
   logros: string[];
 }
 
-const mockStudents: Student[] = [
-  {
-    id: "1",
-    nombre: "Juan Pérez",
-    nivelActual: "A2",
-    empresa: "Tech Solutions",
-    ultimaLeccion: "Presente Simple",
-    puntosAcumulados: 450,
-    tiempoDedicado: "24h 30min",
-    correo: "juan.perez@techsolutions.com",
-    testsRealizados: [
-      { nombre: "Test A1", calificacion: 85 },
-      { nombre: "Test A2", calificacion: 78 }
-    ],
-    logros: ["Primera Lección Completada", "Racha de 7 días", "100 Puntos Acumulados"]
-  },
-  {
-    id: "2",
-    nombre: "María García",
-    nivelActual: "B1",
-    empresa: "Global Corp",
-    ultimaLeccion: "Past Continuous",
-    puntosAcumulados: 680,
-    tiempoDedicado: "35h 15min",
-    correo: "maria.garcia@globalcorp.com",
-    testsRealizados: [
-      { nombre: "Test A2", calificacion: 92 },
-      { nombre: "Test B1", calificacion: 88 }
-    ],
-    logros: ["Racha de 30 días", "500 Puntos Acumulados", "10 Lecciones Completadas"]
-  },
-  {
-    id: "3",
-    nombre: "Carlos Rodríguez",
-    nivelActual: "A1",
-    empresa: "Tech Solutions",
-    ultimaLeccion: "Saludos Básicos",
-    puntosAcumulados: 120,
-    tiempoDedicado: "8h 45min",
-    correo: "carlos.rodriguez@techsolutions.com",
-    testsRealizados: [
-      { nombre: "Test A1", calificacion: 65 }
-    ],
-    logros: ["Primera Lección Completada"]
-  },
-  {
-    id: "4",
-    nombre: "Ana Martínez",
-    nivelActual: "B2",
-    empresa: "Innovation Labs",
-    ultimaLeccion: "Conditional Sentences",
-    puntosAcumulados: 920,
-    tiempoDedicado: "52h 20min",
-    correo: "ana.martinez@innovationlabs.com",
-    testsRealizados: [
-      { nombre: "Test B1", calificacion: 95 },
-      { nombre: "Test B2", calificacion: 90 }
-    ],
-    logros: ["Racha de 60 días", "1000 Puntos Acumulados", "25 Lecciones Completadas", "Experto en Gramática"]
-  }
-];
+const initialStudents: Student[] = [];
 
 const mockNotifications = [
   {
@@ -137,9 +75,13 @@ export default function Dashboard() {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const itemsPerPage = 5;
+  const [students, setStudents] = useState<Student[]>(initialStudents);
+  const [studentsLoading, setStudentsLoading] = useState(false);
+  const [studentsTotal, setStudentsTotal] = useState(0);
 
   const [kpis, setKpis] = useState(initialKpis);
   const [levelStats, setLevelStats] = useState<Record<string, { count: number; percent: number }>>({});
+  const [completedToday, setCompletedToday] = useState<number | null>(null);
 
   // Load counts from profiles: total users and new registrations in last 7 days
   const loadKpis = async () => {
@@ -159,6 +101,35 @@ export default function Dashboard() {
       ]);
     } catch (err) {
       console.error('failed to load dashboard kpis', err);
+    }
+  };
+
+  const loadCompletedToday = async () => {
+    try {
+      // calculate start and end of today in UTC ISO format
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      const startIso = start.toISOString();
+      const endIso = end.toISOString();
+
+      // count enrollments with status 'completed' where updated_at is today
+      const { count, error } = await supabase
+        .from('enrollments')
+        .select('id', { count: 'exact' })
+        .eq('status', 'completed')
+        .gte('updated_at', startIso)
+        .lte('updated_at', endIso);
+
+      if (error) {
+        console.error('failed to load completed today', error);
+        setCompletedToday(0);
+        return;
+      }
+      setCompletedToday(typeof count === 'number' ? count : 0);
+    } catch (err) {
+      console.error('failed to load completed today', err);
+      setCompletedToday(0);
     }
   };
 
@@ -189,18 +160,173 @@ export default function Dashboard() {
     }
   };
 
-  useEffect(() => { loadKpis(); loadLevelStats(); }, []);
+  useEffect(() => { loadKpis(); loadLevelStats(); loadCompletedToday(); }, []);
 
-  const filteredStudents = mockStudents.filter(student => {
-    const matchesName = student.nombre.toLowerCase().includes(nameFilter.toLowerCase());
-    const matchesLevel = levelFilter === "all" || student.nivelActual === levelFilter;
-    const matchesCompany = student.empresa.toLowerCase().includes(companyFilter.toLowerCase());
-    return matchesName && matchesLevel && matchesCompany;
-  });
+  // Fetch students (profiles) with server-side pagination and filters
+  const fetchStudents = async (opts?: { page?: number }) => {
+    setStudentsLoading(true);
+    const page = opts?.page ?? currentPage;
+    const from = (page - 1) * itemsPerPage;
+    const to = from + itemsPerPage - 1;
+    try {
+      let query = supabase.from('profiles').select('*', { count: 'exact' }).order('created_at', { ascending: false });
 
-  const totalPages = Math.ceil(filteredStudents.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedStudents = filteredStudents.slice(startIndex, startIndex + itemsPerPage);
+      const term = nameFilter.trim();
+      if (term) {
+        const like = `%${term}%`;
+        query = query.or(`name.ilike.${like},last_name.ilike.${like},email.ilike.${like}`);
+      }
+
+      if (levelFilter && levelFilter !== 'all') query = query.eq('nivel_actual', levelFilter);
+      if (companyFilter && companyFilter.trim()) query = query.ilike('company', `%${companyFilter.trim()}%`);
+
+      query = query.range(from, to);
+
+      const { data, error, count } = await query;
+      if (error) {
+        console.error('failed to fetch students', error);
+        setStudents([]);
+        setStudentsTotal(0);
+      } else if (data) {
+        // map basic profile fields
+        const profiles = data as Record<string, unknown>[];
+        const mapped: Student[] = profiles.map((p) => ({
+          id: String(p['id'] ?? ''),
+          nombre: `${String(p['name'] ?? '')} ${String(p['last_name'] ?? '')}`.trim(),
+          nivelActual: p['nivel_actual'] ? String(p['nivel_actual']) : null,
+          empresa: p['company'] ? String(p['company']) : null,
+          ultimaLeccion: null,
+          puntosAcumulados: 0, // hardcoded for now
+          tiempoDedicado: '00:00:00',
+          correo: String(p['email'] ?? ''),
+          testsRealizados: [],
+          logros: []
+        }));
+
+        // helper to format ms to "X Horas Y Mins" (no seconds)
+        const msToHoursMins = (msInput: unknown) => {
+          const ms = Number(msInput ?? 0);
+          if (!isFinite(ms) || ms <= 0) return '0 Horas 0 Mins';
+          const totalMinutes = Math.floor(ms / 60000);
+          const hours = Math.floor(totalMinutes / 60);
+          const minutes = totalMinutes % 60;
+          return `${hours} Horas ${minutes} Mins`;
+        };
+
+        // helper to format ms to HH:MM:SS
+        const msToHHMMSS = (msInput: unknown) => {
+          const ms = Number(msInput ?? 0);
+          if (!isFinite(ms) || ms <= 0) return '00:00:00';
+          const totalSeconds = Math.floor(ms / 1000);
+          const hours = Math.floor(totalSeconds / 3600);
+          const minutes = Math.floor((totalSeconds % 3600) / 60);
+          const seconds = totalSeconds % 60;
+          const hh = String(hours).padStart(2, '0');
+          const mm = String(minutes).padStart(2, '0');
+          const ss = String(seconds).padStart(2, '0');
+          return `${hh}:${mm}:${ss}`;
+        };
+
+        // fetch latest enrollment per profile in page
+        const profileIds = mapped.map(s => s.id).filter(Boolean);
+        if (profileIds.length > 0) {
+          // fetch total_ms from the view `user_total_foreground_extended` for all profiles in page
+          let totalsMap: Record<string, number> = {};
+          try {
+            const { data: totalsData, error: totalsErr } = await supabase
+              .from('user_total_foreground_extended')
+              .select('user_id,total_ms')
+              .in('user_id', profileIds);
+
+            if (totalsErr) {
+              console.error('failed to fetch totals from view user_total_foreground_extended', totalsErr);
+            } else if (totalsData && Array.isArray(totalsData)) {
+              totalsMap = (totalsData as Record<string, unknown>[]).reduce((acc, t) => {
+                const uid = String(t['user_id'] ?? '');
+                const total = Number(t['total_ms'] ?? 0);
+                acc[uid] = Number.isFinite(total) ? total : 0;
+                return acc;
+              }, {} as Record<string, number>);
+            }
+          } catch (err) {
+            console.error('error querying user_total_foreground_extended', err);
+          }
+
+          // fetch enrollments after totals (we only use enrollments to compute ultimaLeccion)
+          const { data: enrollments, error: enrollErr } = await supabase
+            .from('enrollments')
+            .select('profile_id,lesson_id,updated_at,status')
+            .in('profile_id', profileIds)
+            .order('updated_at', { ascending: false });
+
+          if (enrollErr) {
+            console.error('failed to fetch enrollments', enrollErr);
+          }
+
+          // pick latest lesson_id per profile (first occurrence since ordered desc)
+          const latestByProfile: Record<string, string> = {};
+          if (enrollments && enrollments.length > 0) {
+            for (const row of enrollments as Record<string, unknown>[]) {
+              const pid = String(row['profile_id'] ?? '');
+              const lid = String(row['lesson_id'] ?? '');
+              if (!latestByProfile[pid]) latestByProfile[pid] = lid;
+            }
+          }
+
+          // fetch lesson titles for these lesson ids (if any)
+          const lessonIds = Array.from(new Set(Object.values(latestByProfile).filter(Boolean)));
+          let lessonTitles: Record<string, string> = {};
+          if (lessonIds.length > 0) {
+            const { data: lessonsData, error: lessonsErr } = await supabase.from('lessons').select('id,title').in('id', lessonIds);
+            if (lessonsErr) {
+              console.error('failed to fetch lessons', lessonsErr);
+            } else if (lessonsData) {
+              lessonTitles = (lessonsData as Record<string, unknown>[]).reduce((acc, l) => {
+                const id = String(l['id'] ?? '');
+                const title = String(l['title'] ?? id);
+                acc[id] = title;
+                return acc;
+              }, {} as Record<string, string>);
+            }
+          }
+
+          // attach latest lesson title and tiempoDedicado using totalsMap only (no fallback to profiles.total_foreground_ms)
+          for (const p of profiles) {
+            const id = String(p['id'] ?? '');
+            const idx = mapped.findIndex(s => s.id === id);
+            if (idx === -1) continue;
+            const lessonId = latestByProfile[id];
+            mapped[idx].ultimaLeccion = lessonId ? (lessonTitles[lessonId] ?? lessonId) : null;
+            const totalMs = typeof totalsMap[id] === 'number' && Number.isFinite(totalsMap[id]) ? totalsMap[id] : 0;
+            mapped[idx].tiempoDedicado = msToHHMMSS(totalMs);
+            mapped[idx].tiempoDedicadoHuman = msToHoursMins(totalMs);
+          }
+        }
+
+        setStudents(mapped);
+        setStudentsTotal(typeof count === 'number' ? count : mapped.length);
+      } else {
+        setStudents([]);
+        setStudentsTotal(0);
+      }
+    } finally {
+      setStudentsLoading(false);
+    }
+  };
+
+  // Re-fetch students when filters or page change
+  useEffect(() => {
+    setCurrentPage(1);
+    fetchStudents({ page: 1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nameFilter, levelFilter, companyFilter]);
+
+  useEffect(() => {
+    fetchStudents({ page: currentPage });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage]);
+
+  const totalPages = Math.max(1, Math.ceil(studentsTotal / itemsPerPage));
 
   const handleExportCSV = () => {
     const headers = ["Nombre", "Nivel Actual", "Empresa", "Última Lección", "Puntos Acumulados", "Tiempo Dedicado"];
@@ -275,17 +401,25 @@ export default function Dashboard() {
         </Card>
       ))}
 
-      {staticKpis.map((kpi, index) => (
-        <Card key={`static-${index}`} className="shadow-card">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">{kpi.title}</CardTitle>
-            <kpi.icon className={`h-5 w-5 ${kpi.color}`} />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-foreground">{kpi.value}</div>
-          </CardContent>
-        </Card>
-      ))}
+      <Card className="shadow-card">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">Lecciones Completadas Hoy</CardTitle>
+          <BookOpen className={`h-5 w-5 text-success`} />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold text-foreground">{completedToday === null ? '—' : String(completedToday)}</div>
+        </CardContent>
+      </Card>
+
+      <Card key={`static-session`} className="shadow-card">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">{staticKpiSession.title}</CardTitle>
+          <staticKpiSession.icon className={`h-5 w-5 ${staticKpiSession.color}`} />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold text-foreground">{staticKpiSession.value}</div>
+        </CardContent>
+      </Card>
     </div>
 
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -377,14 +511,14 @@ export default function Dashboard() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paginatedStudents.map((student) => (
+            {students.map((student) => (
               <TableRow key={student.id}>
-                <TableCell className="font-medium">{student.nombre}</TableCell>
-                <TableCell>{student.nivelActual}</TableCell>
-                <TableCell>{student.empresa}</TableCell>
-                <TableCell>{student.ultimaLeccion}</TableCell>
+                <TableCell className="font-medium">{student.nombre || '—'}</TableCell>
+                <TableCell>{student.nivelActual ?? 'Sin nivel'}</TableCell>
+                <TableCell>{student.empresa ?? '—'}</TableCell>
+                <TableCell>{student.ultimaLeccion ?? '—'}</TableCell>
                 <TableCell>{student.puntosAcumulados}</TableCell>
-                <TableCell>{student.tiempoDedicado}</TableCell>
+                <TableCell title={student.tiempoDedicadoHuman ?? ''}>{student.tiempoDedicado}</TableCell>
                 <TableCell className="text-right">
                   <Button
                     variant="outline"

@@ -9,6 +9,7 @@ import {
   Power,
   PowerOff,
   Mail,
+  Loader2,
   Check,
   X
 } from "lucide-react";
@@ -80,6 +81,9 @@ export default function UserManagement() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+  const [inviteSending, setInviteSending] = useState(false);
+  const [resendSendingId, setResendSendingId] = useState<string | null>(null);
+
 
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
@@ -285,6 +289,8 @@ export default function UserManagement() {
     // Generate 6-digit code
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     setInviteCode(code);
+    // ensure inviteSending is reset when opening the modal
+    setInviteSending(false);
     setIsInviteModalOpen(true);
   };
 
@@ -332,33 +338,194 @@ export default function UserManagement() {
       return;
     }
 
-    const insertObj = {
-      name: inviteName,
-      email: inviteEmail,
-      code: inviteCode,
-      // invitations should also store tipo normalized
-      tipo: 'alumno',
-      status: 'invitado',
-    };
+    try {
+      // Check if email already exists in profiles (users)
+      const { data: existingProfiles, error: errProfiles } = await supabase
+        .from('profiles')
+        .select('id')
+        .ilike('email', inviteEmail)
+        .limit(1);
+      if (errProfiles) {
+        toast({ title: 'Error', description: errProfiles.message, variant: 'destructive' });
+        return;
+      }
+      if (existingProfiles && existingProfiles.length > 0) {
+        toast({ title: 'Error', description: 'El email ya está registrado como usuario.', variant: 'destructive' });
+        return;
+      }
 
-    // insert into `invitations` table (create this table in Supabase)
-    const { error } = await supabase.from('invitations').insert(insertObj);
-    if (error) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
-      return;
+      // Check if an invitation for this email already exists
+      const { data: existingInvites, error: errInvites } = await supabase
+        .from('invitations')
+        .select('id')
+        .ilike('email', inviteEmail)
+        .limit(1);
+      if (errInvites) {
+        toast({ title: 'Error', description: errInvites.message, variant: 'destructive' });
+        return;
+      }
+      if (existingInvites && existingInvites.length > 0) {
+        toast({ title: 'Error', description: 'Ya se ha enviado una invitación a este email.', variant: 'destructive' });
+        return;
+      }
+
+      const insertObj = {
+        name: inviteName,
+        email: inviteEmail,
+        code: inviteCode,
+        // invitations should also store tipo normalized
+        tipo: 'alumno',
+        status: 'invitado',
+      };
+
+      // insert into `invitations` table (create this table in Supabase)
+      const { error } = await supabase.from('invitations').insert(insertObj);
+      if (error) {
+        toast({ title: 'Error', description: error.message, variant: 'destructive' });
+        return;
+      }
+
+      // Send invitation using the external API2Mail endpoint
+      // NOTE: token is hardcoded here per your request — consider using env vars or secrets for production
+      const SEND_API2MAIL_URL = "https://api2mail.vercel.app/send-email";
+      const API2MAIL_BEARER = "a1262e8eb1d12e4b7d2583f98a1c62b870207e602dfb3b9d63449a46a03810be";
+
+      const inviteLink = `${window.location.origin}/reset-password?code=${encodeURIComponent(insertObj.code)}`;
+      const iosLink = "https://apps.apple.com/app/idYOUR_IOS_APP_ID";
+      const androidLink = "https://play.google.com/store/apps/details?id=YOUR_ANDROID_PACKAGE";
+
+      const html = `
+        <div style="font-family:Arial,Helvetica,sans-serif;color:#0b2540;">
+          <h2 style="margin-top:0">Invitación a TrueEnglish Academy</h2>
+          <p>Hola ${inviteName},</p>
+          <p>Este es tu código para registrarte en la aplicación TrueEnglish:</p>
+          <p style="font-size:20px;font-weight:700;color:#015ea8;">${insertObj.code}</p>
+
+          <p>Descárgala aquí:</p>
+          <p style="display:flex;gap:10px;margin:12px 0;">
+            <a href="${iosLink}" style="display:inline-block;padding:10px 14px;background:#015ea8;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">App Store (iOS)</a>
+            <a href="${androidLink}" style="display:inline-block;padding:10px 14px;background:#0a66c2;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Google Play (Android)</a>
+          </p>
+
+          <p>Al registrarte en la aplicación, introduce el código arriba para completar tu registro.</p>
+
+          <p style="margin-top:18px">Si tienes problemas, visita <a href="${window.location.origin}" style="color:#015ea8;text-decoration:underline;">nuestra web</a> o contacta con soporte.</p>
+        </div>`;
+
+      const textBody = `Hola ${inviteName},\n\nEste es tu codigo para registrarte en TrueEnglish: ${insertObj.code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nAl registrar, introduce el codigo para completar tu registro.`;
+
+      const payload = {
+        to: inviteEmail,
+        subject: `Invitación a TrueEnglish Academy - ${insertObj.code}`,
+        htmlBody: html,
+        textBody,
+        fromName: "TrueEnglish Soporte",
+        fromHeader: 'TrueEnglish Soporte '
+      };
+
+      const resp = await fetch(SEND_API2MAIL_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API2MAIL_BEARER}` },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        console.error('api2mail error', data);
+        toast({ title: 'Error enviando email', description: data?.error || 'Error al enviar email', variant: 'destructive' });
+      } else {
+        toast({ title: 'Email enviado', description: 'La invitación fue enviada por correo.' });
+      }
+
+      setIsInviteModalOpen(false);
+      setInviteEmail('');
+      setInviteName('');
+      setInviteCode('');
+      toast({ title: 'Invitación enviada', description: 'La invitación ha sido guardada.' });
+      await fetchInvitedStudents();
+    } catch (err) {
+      console.error('Failed to send invitation', err);
+      toast({ title: 'Error', description: 'No se pudo procesar la invitación.', variant: 'destructive' });
     }
-
-    setIsInviteModalOpen(false);
-    setInviteEmail('');
-    setInviteName('');
-    setInviteCode('');
-    toast({ title: 'Invitación enviada', description: 'La invitación ha sido guardada.' });
-    await fetchInvitedStudents();
+    finally {
+      setInviteSending(false);
+    }
   };
 
-  const handleResendInvitation = (studentId: string) => {
-    // For now we just show a toast - real email sending requires backend
-    toast({ title: 'Email reenviado', description: 'La invitación ha sido reenviada.' });
+  const handleResendInvitation = async (studentId: string) => {
+    setResendSendingId(studentId);
+    try {
+      // fetch invitation row by id
+      const { data, error } = await supabase.from('invitations').select('*').eq('id', studentId).single();
+      if (error || !data) {
+        toast({ title: 'Error', description: error?.message || 'Invitación no encontrada', variant: 'destructive' });
+        return;
+      }
+
+      const invite = data as Record<string, unknown>;
+      const inviteEmail = String(invite['email'] ?? '');
+      const inviteName = String(invite['name'] ?? '');
+      const code = String(invite['code'] ?? '');
+
+      if (!inviteEmail) {
+        toast({ title: 'Error', description: 'El registro de invitación no tiene email.', variant: 'destructive' });
+        return;
+      }
+
+      const SEND_API2MAIL_URL = "https://api2mail.vercel.app/send-email";
+      const API2MAIL_BEARER = "a1262e8eb1d12e4b7d2583f98a1c62b870207e602dfb3b9d63449a46a03810be";
+
+      const inviteLink = `${window.location.origin}/reset-password?code=${encodeURIComponent(code)}`;
+      const iosLink = "https://apps.apple.com/app/idYOUR_IOS_APP_ID";
+      const androidLink = "https://play.google.com/store/apps/details?id=YOUR_ANDROID_PACKAGE";
+
+      const html = `
+        <div style="font-family:Arial,Helvetica,sans-serif;color:#0b2540;">
+          <h2 style="margin-top:0">Invitación a TrueEnglish Academy</h2>
+          <p>Hola ${inviteName || inviteEmail},</p>
+          <p>Este es tu código para registrarte en la aplicación TrueEnglish:</p>
+          <p style="font-size:20px;font-weight:700;color:#015ea8;">${code}</p>
+
+          <p>Descárgala aquí:</p>
+          <p style="display:flex;gap:10px;margin:12px 0;">
+            <a href="${iosLink}" style="display:inline-block;padding:10px 14px;background:#015ea8;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">App Store (iOS)</a>
+            <a href="${androidLink}" style="display:inline-block;padding:10px 14px;background:#0a66c2;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Google Play (Android)</a>
+          </p>
+
+          <p>Al registrarte en la aplicación, introduce el código arriba para completar tu registro.</p>
+
+          <p style="margin-top:18px">Si tienes problemas, visita <a href="${window.location.origin}" style="color:#015ea8;text-decoration:underline;">nuestra web</a> o contacta con soporte.</p>
+        </div>`;
+
+      const textBody = `Hola ${inviteName || inviteEmail},\n\nEste es tu codigo para registrarte en TrueEnglish: ${code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nAl registrar, introduce el codigo para completar tu registro.`;
+
+      const payload = {
+        to: inviteEmail,
+        subject: `Invitación a TrueEnglish Academy - ${code}`,
+        htmlBody: html,
+        textBody,
+        fromName: "TrueEnglish Soporte",
+      };
+
+      const resp = await fetch(SEND_API2MAIL_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API2MAIL_BEARER}` },
+        body: JSON.stringify(payload),
+      });
+
+      const dataResp = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        console.error('api2mail resend error', dataResp);
+        toast({ title: 'Error reenviando', description: dataResp?.error || 'No se pudo reenviar el email', variant: 'destructive' });
+      } else {
+        toast({ title: 'Email reenviado', description: 'La invitación fue reenviada correctamente.' });
+      }
+    } catch (err) {
+      console.error('Failed to resend invitation', err);
+      toast({ title: 'Error', description: 'Error al reenviar la invitación.', variant: 'destructive' });
+    } finally {
+      setResendSendingId(null);
+    }
   };
 
   const handleDeleteInvitedStudent = (studentId: string) => {
@@ -480,9 +647,10 @@ export default function UserManagement() {
                             variant="outline"
                             size="sm"
                             onClick={() => handleResendInvitation(inv.id)}
+                            disabled={resendSendingId === inv.id}
                           >
                             <Mail className="w-4 h-4 mr-1" />
-                            Reenviar Email
+                            {resendSendingId === inv.id ? 'Reenviando...' : 'Reenviar Email'}
                           </Button>
                           <Button
                             variant="outline"
@@ -535,8 +703,8 @@ export default function UserManagement() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge className={levelColors[user.nivelActual as keyof typeof levelColors]}>
-                      {user.nivelActual}
+                    <Badge className={user.nivelActual && levelColors[user.nivelActual as keyof typeof levelColors] ? levelColors[user.nivelActual as keyof typeof levelColors] : 'bg-gray-100 text-gray-600'}>
+                      {user.nivelActual ? user.nivelActual : 'Sin nivel'}
                     </Badge>
                   </TableCell>
                   <TableCell>{format(user.fechaRegistro, "dd/MM/yyyy")}</TableCell>
@@ -634,6 +802,7 @@ export default function UserManagement() {
                 placeholder="Nombre del alumno"
               />
             </div>
+
             <div className="space-y-2">
               <label htmlFor="invite-email" className="text-sm font-medium">
                 Email
@@ -660,11 +829,22 @@ export default function UserManagement() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsInviteModalOpen(false)}>
+            <Button variant="outline" onClick={() => setIsInviteModalOpen(false)} disabled={inviteSending}>
               Cancelar
             </Button>
-            <Button onClick={handleSendInvitation}>
-              Enviar Invitación
+            <Button
+              onClick={handleSendInvitation}
+              disabled={inviteSending || !inviteName.trim() || !inviteEmail.trim()}
+              className={inviteSending || !inviteName.trim() || !inviteEmail.trim() ? 'opacity-50 cursor-not-allowed' : ''}
+            >
+              {inviteSending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Enviando...
+                </>
+              ) : (
+                'Enviar Invitación'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
