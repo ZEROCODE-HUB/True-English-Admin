@@ -5,6 +5,7 @@ export interface ChallengeCreatePayload {
   level: string;
   lesson_id?: string | null;
   active?: boolean;
+  points?: number;
 }
 
 export interface QuestionOptionPayload {
@@ -26,6 +27,7 @@ export interface QuestionCreatePayload {
   correct_option_id?: string | null;
   correct_option_index?: number;
   options?: QuestionOptionPayload[];
+  points?: number;
 }
 
 export async function listChallenges() {
@@ -124,6 +126,7 @@ export async function createQuestionWithOptions(payload: QuestionCreatePayload) 
         image_url: payload.image_url ?? null,
         audio_url: payload.audio_url ?? null,
         active: payload.active ?? true,
+        points: payload.points ?? 0,
         include_in_test: payload.include_in_test ?? false,
         correct_option_id: payload.correct_option_id ?? null,
       },
@@ -187,6 +190,7 @@ export async function updateQuestionWithOptions(questionId: string, payload: Par
   if (payload.content !== undefined) patch.content = payload.content;
   if (payload.image_url !== undefined) patch.image_url = payload.image_url ?? null;
   if (payload.audio_url !== undefined) patch.audio_url = payload.audio_url ?? null;
+  if (payload.points !== undefined) patch.points = payload.points ?? 0;
   if (payload.active !== undefined) patch.active = payload.active;
   if (payload.include_in_test !== undefined) patch.include_in_test = payload.include_in_test;
 

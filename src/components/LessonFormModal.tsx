@@ -44,14 +44,16 @@ export default function LessonFormModal({ isOpen, onClose, onSave, lesson }: Les
         titulo: lesson.titulo,
         descripcion: lesson.descripcion,
         nivelAsociado: lesson.nivelAsociado,
-        obligatoria: lesson.obligatoria
+        obligatoria: lesson.obligatoria,
+        points: lesson.points ?? 0
       });
     } else {
       setFormData({
         titulo: "",
         descripcion: "",
         nivelAsociado: "A1",
-        obligatoria: false
+        obligatoria: false,
+        points: 0
       });
     }
     setErrors({});
@@ -62,6 +64,7 @@ export default function LessonFormModal({ isOpen, onClose, onSave, lesson }: Les
 
     if (!formData.titulo.trim()) newErrors.titulo = "El título es requerido";
     if (!formData.descripcion.trim()) newErrors.descripcion = "La descripción es requerida";
+    if (typeof formData.points !== 'number' || Number.isNaN(formData.points) || formData.points < 0) newErrors.points = 'Puntos inválidos';
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -142,6 +145,20 @@ export default function LessonFormModal({ isOpen, onClose, onSave, lesson }: Les
               onCheckedChange={(checked) => setFormData(prev => ({ ...prev, obligatoria: checked }))}
             />
             <Label htmlFor="obligatoria">Lección Obligatoria</Label>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="points">Puntos Ganados</Label>
+            <Input
+              id="points"
+              type="number"
+              min={0}
+              step={1}
+              value={String(formData.points ?? 0)}
+              onChange={(e) => setFormData(prev => ({ ...prev, points: Math.max(0, parseInt(e.target.value || '0') || 0) }))}
+              className={errors.points ? "border-destructive" : ""}
+            />
+            {errors.points && <p className="text-sm text-destructive">{errors.points}</p>}
           </div>
 
           <div className="flex justify-end gap-3 pt-4">

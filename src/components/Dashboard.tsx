@@ -243,6 +243,7 @@ export default function Dashboard() {
             } else if (totalsData && Array.isArray(totalsData)) {
               totalsMap = (totalsData as Record<string, unknown>[]).reduce((acc, t) => {
                 const uid = String(t['user_id'] ?? '');
+
                 const total = Number(t['total_ms'] ?? 0);
                 acc[uid] = Number.isFinite(total) ? total : 0;
                 return acc;

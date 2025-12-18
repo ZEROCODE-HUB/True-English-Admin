@@ -23,6 +23,7 @@ export interface OnboardingQuestion {
   opcion4: string;
   respuestaCorrecta: number; // 1-4
   incluirEnTest: boolean;
+  points?: number;
 }
 export interface Lesson {
   id: string;
@@ -39,6 +40,7 @@ export interface LevelQuestion {
   opcion4: string;
   respuestaCorrecta: number; // 1-4
   incluirEnTest: boolean;
+  points?: number;
 }
 export interface LessonQuestion {
   id: string;
@@ -49,6 +51,7 @@ export interface LessonQuestion {
   opciones: string[];
   respuestaCorrecta: number;
   activa: boolean;
+  points?: number;
 }
 
 export interface Challenge {
@@ -58,6 +61,7 @@ export interface Challenge {
   lessonId: string;
   lessonTitle: string;
   activo: boolean;
+  points?: number;
 }
 
 export interface ChallengeQuestion {
@@ -120,7 +124,8 @@ export default function QuizManagement() {
         opcion3: q.question_options?.[2]?.text ?? '',
         opcion4: q.question_options?.[3]?.text ?? '',
         respuestaCorrecta: q.correct_option_id ? ((q.question_options || []).findIndex((o: any) => o.id === q.correct_option_id) + 1) : 1,
-        incluirEnTest: q.include_in_test ?? false
+        incluirEnTest: q.include_in_test ?? false,
+        points: (q.points ?? q.puntos ?? 0) as number
       }));
       setLevelQuestions(mapped);
     } catch (err) {
@@ -140,7 +145,8 @@ export default function QuizManagement() {
         pregunta: q.title ?? q.title,
         opciones: (q.question_options || []).map((o: any) => o.text),
         respuestaCorrecta: q.correct_option_id ? ((q.question_options || []).findIndex((o: any) => o.id === q.correct_option_id) + 1) : 1,
-        activa: q.active ?? true
+        activa: q.active ?? true,
+        points: (q.points ?? q.puntos ?? 0) as number
       }));
       setLessonQuestions(mapped);
     } catch (err) {
@@ -157,7 +163,8 @@ export default function QuizManagement() {
         nivel: c.level ?? c.nivel ?? 'A1',
         lessonId: c.lesson_id ?? c.lessonId ?? '',
         lessonTitle: c.lesson_id ? '' : (c.lesson_title ?? ''),
-        activo: typeof c.active === 'boolean' ? c.active : (c.activo ?? true)
+        activo: typeof c.active === 'boolean' ? c.active : (c.activo ?? true),
+        points: (c.points ?? c.puntos ?? 0) as number
       }));
       setChallenges(mapped);
     } catch (err) {
@@ -381,7 +388,8 @@ export default function QuizManagement() {
           nivel: c.level ?? c.nivel ?? 'A1',
           lessonId: c.lesson_id ?? c.lessonId ?? '',
           lessonTitle: c.lesson_id ? '' : (c.lesson_title ?? ''),
-          activo: typeof c.active === 'boolean' ? c.active : (c.activo ?? true)
+          activo: typeof c.active === 'boolean' ? c.active : (c.activo ?? true),
+          points: (c.points ?? c.puntos ?? 0) as number
         }));
         setChallenges(mapped);
       } catch (err: any) {
@@ -1304,6 +1312,7 @@ export default function QuizManagement() {
           level: selectedOnboardingLevel ?? undefined,
           content: {},
           active: true,
+          points: (questionData as any).points ?? 0,
           options: [
             { text: questionData.opcion1, order: 0 },
             { text: questionData.opcion2, order: 1 },
@@ -1352,6 +1361,7 @@ export default function QuizManagement() {
           level: selectedLevel,
           content: {},
           active: true,
+          points: (questionData as any).points ?? 0,
           options: [
             { text: questionData.opcion1, order: 0 },
             { text: questionData.opcion2, order: 1 },
@@ -1398,6 +1408,7 @@ export default function QuizManagement() {
           lesson_id: questionData.lessonId,
           content: {},
           active: questionData.activa,
+          points: (questionData as any).points ?? 0,
           options: questionData.opciones.map((o, i) => ({ text: o, order: i }))
           ,
           correct_option_index: questionData.respuestaCorrecta
@@ -1509,7 +1520,8 @@ export default function QuizManagement() {
             title: data.titulo,
             level: data.nivel,
             lesson_id: data.lessonId || null,
-            active: data.activo ?? true
+            active: data.activo ?? true,
+            points: (data as any).points ?? 0
           };
           const created = await quizzes.createChallenge(payload as any);
           await refreshChallenges();

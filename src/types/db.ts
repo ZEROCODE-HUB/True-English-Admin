@@ -11,6 +11,7 @@ export interface Note {
   audios: string[];
   activo: boolean;
   orden: number;
+  points?: number;
 }
 
 export interface Exercise {
@@ -25,6 +26,7 @@ export interface Exercise {
   obligatorio: boolean;
   activo: boolean;
   orden: number;
+  points?: number;
 }
 
 export interface Lesson {
@@ -36,6 +38,7 @@ export interface Lesson {
   fechaCreacion: string | Date;
   notas: Note[];
   ejercicios: Exercise[];
+  points?: number;
 }
 
 // Minimal RPC payloads (expand later if needed)
@@ -62,6 +65,7 @@ export interface RPCContentItem {
   options?: Array<{ id: string; text: string }>;
   correct_option_id?: string | null;
   mandatory?: boolean | null;
+  points?: number | null;
 }
 
 export interface RPCGetLessonDetailResponse {

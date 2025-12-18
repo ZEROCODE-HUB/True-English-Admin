@@ -31,14 +31,16 @@ export default function CreateChallengeModal({ isOpen, onClose, onSave, lessons,
         titulo: challenge.titulo,
         nivel: challenge.nivel,
         lessonId: challenge.lessonId,
-        activo: challenge.activo
+        activo: challenge.activo,
+        points: (challenge as any).points ?? 0
       });
     } else {
       setFormData({
         titulo: "",
         nivel: "A1",
         lessonId: "",
-        activo: true
+        activo: true,
+        points: 0
       });
     }
     setErrors({});
@@ -48,6 +50,7 @@ export default function CreateChallengeModal({ isOpen, onClose, onSave, lessons,
     const newErrors: Record<string, string> = {};
     if (!formData.titulo.trim()) newErrors.titulo = "El título es requerido";
     if (!formData.lessonId) newErrors.lessonId = "Selecciona una lección asociada";
+    if (typeof (formData as any).points !== 'number' || Number.isNaN((formData as any).points) || (formData as any).points < 0) newErrors.points = 'Puntos inválidos';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -63,7 +66,8 @@ export default function CreateChallengeModal({ isOpen, onClose, onSave, lessons,
           titulo: formData.titulo,
           nivel: formData.nivel as any,
           lessonId: formData.lessonId,
-          activo: formData.activo
+          activo: formData.activo,
+          points: (formData as any).points ?? 0
         }) as any);
       } finally {
         setIsSaving(false);
@@ -123,6 +127,12 @@ export default function CreateChallengeModal({ isOpen, onClose, onSave, lessons,
               </Select>
               {errors.lessonId && <p className="text-sm text-destructive">{errors.lessonId}</p>}
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="points">Puntos Ganados</Label>
+            <Input id="points" type="number" min={0} step={1} value={String((formData as any).points ?? 0)} onChange={(e) => setFormData(p => ({ ...p, points: Math.max(0, parseInt(e.target.value || '0') || 0) }))} className={errors.points ? 'border-destructive' : ''} />
+            {errors.points && <p className="text-sm text-destructive">{errors.points}</p>}
           </div>
 
           <div className="flex items-center justify-between">

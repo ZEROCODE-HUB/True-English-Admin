@@ -182,7 +182,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
         imagenes: n.image_url ? [n.image_url] : [],
         audios: n.audio_url ? [n.audio_url] : [],
         activo: n.active || false,
-        orden: n.order || 0
+        orden: n.order || 0,
+        points: (n.points ?? 0) as number
       }));
 
       const ejercicios: Exercise[] = content.filter((c) => c.kind === 'exercise').map((e) => ({
@@ -197,6 +198,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
         obligatorio: e.mandatory || false,
         activo: e.active || false,
         orden: e.order || 0
+        ,
+        points: (e.points ?? 0) as number
       }));
 
       setCurrentLesson({
@@ -230,7 +233,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
 
   const handleCreateNote = () => {
     setEditingNote(null);
-    setNoteForm({ titulo: "", descripcion: "", imagenes: [], audios: [], imagenFile: null, audioFile: null, activo: true });
+    setNoteForm({ titulo: "", descripcion: "", imagenes: [], audios: [], imagenFile: null, audioFile: null, activo: true, points: 0 });
     setIsNoteModalOpen(true);
   };
 
@@ -243,7 +246,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
       audios: note.audios,
       imagenFile: null,
       audioFile: null,
-      activo: note.activo
+      activo: note.activo,
+      points: note.points ?? 0
     });
     setIsNoteModalOpen(true);
   };
@@ -278,7 +282,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
             content: noteForm.descripcion,
             image_url: imageUrl,
             audio_url: audioUrl,
-            active: noteForm.activo
+            active: noteForm.activo,
+            points: (noteForm as any).points ?? 0
           }).eq('id', editingNote.id);
           if (error) throw error;
           toast({ title: 'Nota actualizada', description: 'La nota ha sido actualizada correctamente.' });
@@ -291,6 +296,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
             image_url: imageUrl,
             audio_url: audioUrl,
             active: noteForm.activo,
+            points: (noteForm as any).points ?? 0,
             "order": order
           }]);
           if (error) throw error;
@@ -356,7 +362,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
       opciones: [],
       respuestaCorrecta: "",
       obligatorio: false,
-      activo: true
+      activo: true,
+      points: 0
     });
     setIsExerciseModalOpen(true);
   };
@@ -374,7 +381,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
       opciones: exercise.opciones,
       respuestaCorrecta: exercise.respuestaCorrecta,
       obligatorio: exercise.obligatorio,
-      activo: exercise.activo
+      activo: exercise.activo,
+      points: exercise.points ?? 0
     });
     setIsExerciseModalOpen(true);
   };
@@ -432,6 +440,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
             audio_url: audioUrl,
             mandatory: exerciseForm.obligatorio,
             active: exerciseForm.activo,
+            points: (exerciseForm as any).points ?? 0,
             "order": editingExercise.orden
           }).eq('id', editingExercise.id);
           if (upErr) throw upErr;
@@ -469,6 +478,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
             audio_url: audioUrl,
             mandatory: exerciseForm.obligatorio,
             active: exerciseForm.activo,
+            points: (exerciseForm as any).points ?? 0,
             "order": order
           }]).select().single();
           if (exErr) throw exErr;
@@ -807,6 +817,10 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
               />
               <Label>Nota Activa</Label>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="note-points">Puntos Ganados</Label>
+              <Input id="note-points" type="number" min={0} step={1} value={String((noteForm as any).points ?? 0)} onChange={(e) => setNoteForm(prev => ({ ...prev, points: Math.max(0, parseInt(e.target.value || '0') || 0) }))} />
+            </div>
             <div className="flex justify-end gap-3">
               <Button variant="outline" onClick={() => setIsNoteModalOpen(false)} disabled={isNoteSaving}>
                 Cancelar
@@ -998,6 +1012,10 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
                   onCheckedChange={(checked) => setExerciseForm(prev => ({ ...prev, activo: checked }))}
                 />
                 <Label>Ejercicio Activo</Label>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="exercise-points">Puntos Ganados</Label>
+                <Input id="exercise-points" type="number" min={0} step={1} value={String((exerciseForm as any).points ?? 0)} onChange={(e) => setExerciseForm(prev => ({ ...prev, points: Math.max(0, parseInt(e.target.value || '0') || 0) }))} />
               </div>
             </div>
 
