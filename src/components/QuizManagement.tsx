@@ -819,6 +819,7 @@ export default function QuizManagement() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Pregunta</TableHead>
+                      <TableHead>Puntos</TableHead>
                       <TableHead>Respuesta Correcta</TableHead>
                       <TableHead>Incluir en Test</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
@@ -827,6 +828,7 @@ export default function QuizManagement() {
                   <TableBody>
                     {onboardingQuestions.map(question => <TableRow key={question.id}>
                       <TableCell className="max-w-md"><div className="truncate">{question.pregunta}</div></TableCell>
+                      <TableCell><div className="text-sm">{(question as any).points ?? 0} pts</div></TableCell>
                       <TableCell><Badge variant="outline">Opción {question.respuestaCorrecta}</Badge></TableCell>
                       <TableCell>
                         <Button variant="ghost" size="sm" onClick={() => handleToggleOnboardingQuestion(question.id)} className={question.incluirEnTest ? "text-success" : "text-muted-foreground"}>
@@ -906,6 +908,7 @@ export default function QuizManagement() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Pregunta</TableHead>
+                      <TableHead>Puntos</TableHead>
                       <TableHead>Respuesta Correcta</TableHead>
                       <TableHead>Incluir en Test</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
@@ -916,6 +919,7 @@ export default function QuizManagement() {
                       <TableCell className="max-w-md">
                         <div className="truncate">{question.pregunta}</div>
                       </TableCell>
+                      <TableCell><div className="text-sm">{(question as any).points ?? 0} pts</div></TableCell>
                       <TableCell>
                         <Badge variant="outline">
                           Opción {question.respuestaCorrecta}
@@ -1038,6 +1042,7 @@ export default function QuizManagement() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Pregunta</TableHead>
+                      <TableHead>Puntos</TableHead>
                       <TableHead>Estado</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
@@ -1047,6 +1052,7 @@ export default function QuizManagement() {
                       <TableCell className="max-w-md">
                         <div className="truncate">{question.pregunta}</div>
                       </TableCell>
+                      <TableCell><div className="text-sm">{(question as any).points ?? 0} pts</div></TableCell>
                       <TableCell>
                         <Button variant="ghost" size="sm" onClick={() => handleToggleLessonQuestion(question.id)} className={question.activa ? "text-success" : "text-muted-foreground"}>
                           {question.activa ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
@@ -1124,6 +1130,7 @@ export default function QuizManagement() {
                     <TableRow>
                       <TableHead>Título</TableHead>
                       <TableHead>Nivel</TableHead>
+                      <TableHead>Puntos</TableHead>
                       <TableHead>Lección Asociada</TableHead>
                       <TableHead>Estado</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
@@ -1135,6 +1142,9 @@ export default function QuizManagement() {
                         <TableCell className="font-medium">{challenge.titulo}</TableCell>
                         <TableCell>
                           <Badge variant="outline">{challenge.nivel}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">{(challenge as any).points ?? 0} pts</div>
                         </TableCell>
                         <TableCell>{challenge.lessonTitle}</TableCell>
                         <TableCell>
@@ -1220,6 +1230,7 @@ export default function QuizManagement() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Pregunta</TableHead>
+                      <TableHead>Puntos</TableHead>
                       <TableHead>Recursos</TableHead>
                       <TableHead>Respuesta Correcta</TableHead>
                       <TableHead>Estado</TableHead>
@@ -1232,6 +1243,7 @@ export default function QuizManagement() {
                         <TableCell className="max-w-md">
                           <div className="truncate">{question.pregunta}</div>
                         </TableCell>
+                        <TableCell><div className="text-sm">{(question as any).points ?? 0} pts</div></TableCell>
                         <TableCell>
                           <div className="flex gap-1">
                             {question.imagen && (

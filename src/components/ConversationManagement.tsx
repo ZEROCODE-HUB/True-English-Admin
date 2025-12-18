@@ -34,6 +34,7 @@ interface ConversationTopic {
   vocabulario: VocabularyWord[];
   activo: boolean;
   emoji?: string | null;
+  points?: number;
 }
 
 interface ConversationLog {
@@ -128,6 +129,12 @@ const ConversationManagement = () => {
       activo: t.status === 'active',
       emoji: t.emoji || ''
     }));
+
+    // map points if available
+    mapped.forEach((m, idx) => {
+      const raw = (data || [])[idx] || {};
+      (m as any).points = (raw.points ?? raw.puntos ?? 0) as number;
+    });
 
     setTopics(mapped);
   };
@@ -308,6 +315,7 @@ const ConversationManagement = () => {
       vocabulario: [],
       activo: true,
       emoji: ''
+      , points: 0
     });
     setIsTopicModalOpen(true);
   };
@@ -326,7 +334,7 @@ const ConversationManagement = () => {
           // update topic
           const { error } = await supabase
             .from('ai_topics')
-            .update({ title: editingTopic.titulo, prompt: editingTopic.promptSistema, level: editingTopic.nivel, metadata: {}, status: editingTopic.activo ? 'active' : 'draft', emoji: editingTopic.emoji || null })
+            .update({ title: editingTopic.titulo, prompt: editingTopic.promptSistema, level: editingTopic.nivel, metadata: {}, status: editingTopic.activo ? 'active' : 'draft', emoji: editingTopic.emoji || null, points: (editingTopic as any).points ?? 0 })
             .eq('id', editingTopic.id);
 
           if (error) throw error;
@@ -342,7 +350,7 @@ const ConversationManagement = () => {
           toast({ title: "Tema actualizado", description: "El tema ha sido actualizado correctamente." });
         } else {
           // create topic
-          const { data: created, error } = await supabase.from('ai_topics').insert({ title: editingTopic.titulo, prompt: editingTopic.promptSistema, level: editingTopic.nivel, metadata: {}, status: editingTopic.activo ? 'active' : 'draft', emoji: editingTopic.emoji || null }).select().single();
+          const { data: created, error } = await supabase.from('ai_topics').insert({ title: editingTopic.titulo, prompt: editingTopic.promptSistema, level: editingTopic.nivel, metadata: {}, status: editingTopic.activo ? 'active' : 'draft', emoji: editingTopic.emoji || null, points: (editingTopic as any).points ?? 0 }).select().single();
           if (error) throw error;
 
           if (editingTopic.vocabulario.length > 0) {
@@ -691,6 +699,11 @@ const ConversationManagement = () => {
                 onChange={(e) => setEditingTopic(prev => prev ? { ...prev, promptSistema: e.target.value } : null)}
                 placeholder="Describe cómo debe comportarse la IA en esta conversación..."
               />
+            </div>
+
+            <div>
+              <Label htmlFor="topic-points">Puntos Ganados</Label>
+              <Input id="topic-points" type="number" min={0} step={1} value={String((editingTopic as any)?.points ?? 0)} onChange={(e) => setEditingTopic(prev => prev ? { ...prev, points: Math.max(0, parseInt(e.target.value || '0') || 0) } : null)} />
             </div>
 
             <div>
