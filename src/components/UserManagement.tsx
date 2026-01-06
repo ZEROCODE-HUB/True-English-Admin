@@ -388,7 +388,7 @@ export default function UserManagement() {
       // Send invitation using the external API2Mail endpoint
       // NOTE: token is hardcoded here per your request — consider using env vars or secrets for production
       const SEND_API2MAIL_URL = "https://api2mail.vercel.app/send-email";
-      const API2MAIL_BEARER = "a1262e8eb1d12e4b7d2583f98a1c62b870207e602dfb3b9d63449a46a03810be";
+      const API2MAIL_BEARER = "8ebe9d396025bd4cb1ac11abcf2122d15920bfe45ff261442868236919ea5e40";
 
       const inviteLink = `${window.location.origin}/reset-password?code=${encodeURIComponent(insertObj.code)}`;
       const iosLink = "https://apps.apple.com/app/idYOUR_IOS_APP_ID";
@@ -473,7 +473,7 @@ export default function UserManagement() {
       }
 
       const SEND_API2MAIL_URL = "https://api2mail.vercel.app/send-email";
-      const API2MAIL_BEARER = "a1262e8eb1d12e4b7d2583f98a1c62b870207e602dfb3b9d63449a46a03810be";
+      const API2MAIL_BEARER = "8ebe9d396025bd4cb1ac11abcf2122d15920bfe45ff261442868236919ea5e40";
 
       const inviteLink = `${window.location.origin}/reset-password?code=${encodeURIComponent(code)}`;
       const iosLink = "https://apps.apple.com/app/idYOUR_IOS_APP_ID";
