@@ -14,6 +14,8 @@ interface LessonQuizModalProps {
   onSave: (questionData: Omit<LessonQuestion, 'id'>) => void;
   question?: LessonQuestion | null;
   lessons?: { id: string; titulo?: string; title?: string }[];
+  defaultLessonId?: string | null;
+  defaultLessonTitle?: string | null;
 }
 // use lessons passed via props (fetched by parent)
 export default function LessonQuizModal({
@@ -22,6 +24,7 @@ export default function LessonQuizModal({
   onSave,
   question,
   lessons: propsLessons = []
+  , defaultLessonId = null, defaultLessonTitle = null
 }: LessonQuizModalProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({
@@ -32,8 +35,11 @@ export default function LessonQuizModal({
     opciones: ["", ""],
     respuestaCorrecta: 1,
     activa: true
+
   });
+
   const [errors, setErrors] = useState<Record<string, string>>({});
+
   useEffect(() => {
     if (question) {
       setFormData({
@@ -44,19 +50,19 @@ export default function LessonQuizModal({
         opciones: [...question.opciones],
         respuestaCorrecta: question.respuestaCorrecta,
         activa: question.activa
-        , points: (question as any).points ?? 0
+
       });
     } else {
-      setFormData({
-        lessonId: "",
-        lessonTitle: "",
+      setFormData(prev => ({
+        ...prev,
+        lessonId: defaultLessonId ?? "",
+        lessonTitle: defaultLessonTitle ?? (propsLessons.find(l => l.id === defaultLessonId)?.titulo || propsLessons.find(l => l.id === defaultLessonId)?.title || ""),
         tipo: "quizz-leccion",
         pregunta: "",
         opciones: ["", ""],
         respuestaCorrecta: 1,
         activa: true
-        , points: 0
-      });
+      }));
     }
     setErrors({});
   }, [question, isOpen]);
@@ -69,7 +75,7 @@ export default function LessonQuizModal({
     if (formData.respuestaCorrecta > validOptions.length) {
       newErrors.respuestaCorrecta = "La respuesta correcta debe ser una de las opciones válidas";
     }
-    if (typeof (formData as any).points !== 'number' || Number.isNaN((formData as any).points) || (formData as any).points < 0) newErrors.points = 'Puntos inválidos';
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -191,11 +197,7 @@ export default function LessonQuizModal({
           </div>
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="points">Puntos Ganados</Label>
-          <Input id="points" type="number" min={0} step={1} value={String((formData as any).points ?? 0)} onChange={e => setFormData(prev => ({ ...prev, points: Math.max(0, parseInt(e.target.value || '0') || 0) }))} className={errors.points ? 'border-destructive' : ''} />
-          {errors.points && <p className="text-sm text-destructive">{errors.points}</p>}
-        </div>
+
 
         <div className="space-y-4">
           <div className="flex items-center justify-between">

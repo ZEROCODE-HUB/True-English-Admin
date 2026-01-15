@@ -23,7 +23,6 @@ export interface OnboardingQuestion {
   opcion4: string;
   respuestaCorrecta: number; // 1-4
   incluirEnTest: boolean;
-  points?: number;
 }
 export interface Lesson {
   id: string;
@@ -40,7 +39,6 @@ export interface LevelQuestion {
   opcion4: string;
   respuestaCorrecta: number; // 1-4
   incluirEnTest: boolean;
-  points?: number;
 }
 export interface LessonQuestion {
   id: string;
@@ -51,7 +49,6 @@ export interface LessonQuestion {
   opciones: string[];
   respuestaCorrecta: number;
   activa: boolean;
-  points?: number;
 }
 
 export interface Challenge {
@@ -61,9 +58,9 @@ export interface Challenge {
   lessonId: string;
   lessonTitle: string;
   activo: boolean;
+
   points?: number;
 }
-
 export interface ChallengeQuestion {
   id: string;
   challengeId: string;
@@ -125,7 +122,6 @@ export default function QuizManagement() {
         opcion4: q.question_options?.[3]?.text ?? '',
         respuestaCorrecta: q.correct_option_id ? ((q.question_options || []).findIndex((o: any) => o.id === q.correct_option_id) + 1) : 1,
         incluirEnTest: q.include_in_test ?? false,
-        points: (q.points ?? q.puntos ?? 0) as number
       }));
       setLevelQuestions(mapped);
     } catch (err) {
@@ -145,8 +141,7 @@ export default function QuizManagement() {
         pregunta: q.title ?? q.title,
         opciones: (q.question_options || []).map((o: any) => o.text),
         respuestaCorrecta: q.correct_option_id ? ((q.question_options || []).findIndex((o: any) => o.id === q.correct_option_id) + 1) : 1,
-        activa: q.active ?? true,
-        points: (q.points ?? q.puntos ?? 0) as number
+        activa: q.active ?? true
       }));
       setLessonQuestions(mapped);
     } catch (err) {
@@ -159,7 +154,6 @@ export default function QuizManagement() {
       const data = await quizzes.listChallenges();
       const mapped: Challenge[] = (data || []).map((c: any) => ({
         id: c.id,
-        titulo: c.title ?? c.titulo ?? '',
         nivel: c.level ?? c.nivel ?? 'A1',
         lessonId: c.lesson_id ?? c.lessonId ?? '',
         lessonTitle: c.lesson_id ? '' : (c.lesson_title ?? ''),
@@ -819,7 +813,6 @@ export default function QuizManagement() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Pregunta</TableHead>
-                      <TableHead>Puntos</TableHead>
                       <TableHead>Respuesta Correcta</TableHead>
                       <TableHead>Incluir en Test</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
@@ -828,7 +821,6 @@ export default function QuizManagement() {
                   <TableBody>
                     {onboardingQuestions.map(question => <TableRow key={question.id}>
                       <TableCell className="max-w-md"><div className="truncate">{question.pregunta}</div></TableCell>
-                      <TableCell><div className="text-sm">{(question as any).points ?? 0} pts</div></TableCell>
                       <TableCell><Badge variant="outline">Opción {question.respuestaCorrecta}</Badge></TableCell>
                       <TableCell>
                         <Button variant="ghost" size="sm" onClick={() => handleToggleOnboardingQuestion(question.id)} className={question.incluirEnTest ? "text-success" : "text-muted-foreground"}>
@@ -908,7 +900,6 @@ export default function QuizManagement() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Pregunta</TableHead>
-                      <TableHead>Puntos</TableHead>
                       <TableHead>Respuesta Correcta</TableHead>
                       <TableHead>Incluir en Test</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
@@ -919,11 +910,8 @@ export default function QuizManagement() {
                       <TableCell className="max-w-md">
                         <div className="truncate">{question.pregunta}</div>
                       </TableCell>
-                      <TableCell><div className="text-sm">{(question as any).points ?? 0} pts</div></TableCell>
                       <TableCell>
-                        <Badge variant="outline">
-                          Opción {question.respuestaCorrecta}
-                        </Badge>
+                        <Badge variant="outline">Opción {question.respuestaCorrecta}</Badge>
                       </TableCell>
                       <TableCell>
                         <Button variant="ghost" size="sm" onClick={() => handleToggleLevelQuestion(question.id)} className={question.incluirEnTest ? "text-success" : "text-muted-foreground"}>
@@ -1042,7 +1030,6 @@ export default function QuizManagement() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Pregunta</TableHead>
-                      <TableHead>Puntos</TableHead>
                       <TableHead>Estado</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
@@ -1052,7 +1039,6 @@ export default function QuizManagement() {
                       <TableCell className="max-w-md">
                         <div className="truncate">{question.pregunta}</div>
                       </TableCell>
-                      <TableCell><div className="text-sm">{(question as any).points ?? 0} pts</div></TableCell>
                       <TableCell>
                         <Button variant="ghost" size="sm" onClick={() => handleToggleLessonQuestion(question.id)} className={question.activa ? "text-success" : "text-muted-foreground"}>
                           {question.activa ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
@@ -1230,7 +1216,6 @@ export default function QuizManagement() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Pregunta</TableHead>
-                      <TableHead>Puntos</TableHead>
                       <TableHead>Recursos</TableHead>
                       <TableHead>Respuesta Correcta</TableHead>
                       <TableHead>Estado</TableHead>
@@ -1243,7 +1228,7 @@ export default function QuizManagement() {
                         <TableCell className="max-w-md">
                           <div className="truncate">{question.pregunta}</div>
                         </TableCell>
-                        <TableCell><div className="text-sm">{(question as any).points ?? 0} pts</div></TableCell>
+
                         <TableCell>
                           <div className="flex gap-1">
                             {question.imagen && (
@@ -1324,7 +1309,6 @@ export default function QuizManagement() {
           level: selectedOnboardingLevel ?? undefined,
           content: {},
           active: true,
-          points: (questionData as any).points ?? 0,
           options: [
             { text: questionData.opcion1, order: 0 },
             { text: questionData.opcion2, order: 1 },
@@ -1373,7 +1357,6 @@ export default function QuizManagement() {
           level: selectedLevel,
           content: {},
           active: true,
-          points: (questionData as any).points ?? 0,
           options: [
             { text: questionData.opcion1, order: 0 },
             { text: questionData.opcion2, order: 1 },
@@ -1420,7 +1403,6 @@ export default function QuizManagement() {
           lesson_id: questionData.lessonId,
           content: {},
           active: questionData.activa,
-          points: (questionData as any).points ?? 0,
           options: questionData.opciones.map((o, i) => ({ text: o, order: i }))
           ,
           correct_option_index: questionData.respuestaCorrecta
@@ -1452,10 +1434,12 @@ export default function QuizManagement() {
         toast({ title: 'Error', description: 'No se pudo crear la pregunta de lección' });
       }
       setIsLessonModalOpen(false);
-    }} question={editingLessonQuestion} lessons={lessons} />
+    }} question={editingLessonQuestion} lessons={lessons} defaultLessonId={selectedLesson?.id} defaultLessonTitle={selectedLesson?.titulo} />
     <CreateChallengeQuestionModal
       isOpen={isCreateChallengeQuestionModalOpen}
       onClose={() => setIsCreateChallengeQuestionModalOpen(false)}
+      challenges={challenges}
+      defaultChallengeId={selectedChallenge?.id}
       onSave={async (data) => {
         if (!selectedChallenge) return;
         try {
@@ -1476,7 +1460,7 @@ export default function QuizManagement() {
           const payload = {
             kind: 'challenge' as const,
             title: data.pregunta,
-            challenge_id: selectedChallenge.id,
+            challenge_id: (data as any).challengeId ?? selectedChallenge.id,
             content: {},
             image_url,
             audio_url,

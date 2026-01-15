@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, lazy, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,6 +35,7 @@ interface ConversationTopic {
   activo: boolean;
   emoji?: string | null;
   points?: number;
+  descripcion?: string | null;
 }
 
 interface ConversationLog {
@@ -72,6 +73,10 @@ const ConversationManagement = () => {
   const [isTopicModalOpen, setIsTopicModalOpen] = useState(false);
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [editingTopic, setEditingTopic] = useState<ConversationTopic | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+  // load emoji picker lazily to avoid loading heavy assets when not needed
+  const EmojiPicker = lazy(() => import('emoji-picker-react'));
   const [dateFilter, setDateFilter] = useState<Date | undefined>();
   const [userFilter, setUserFilter] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
@@ -115,7 +120,7 @@ const ConversationManagement = () => {
   const loadTopics = async () => {
     const { data, error } = await supabase
       .from('ai_topics')
-      .select(`id, title, emoji, level, prompt, status, ai_topic_vocab(id, word, definition, part_of_speech)`)
+      .select(`id, title, emoji, level, prompt, description, status, ai_topic_vocab(id, word, definition, part_of_speech)`)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -124,6 +129,7 @@ const ConversationManagement = () => {
       id: t.id,
       titulo: t.title,
       promptSistema: t.prompt,
+      descripcion: t.description || '',
       nivel: t.level,
       vocabulario: (t.ai_topic_vocab || []).map((v: any) => ({ id: v.id, word: v.word, definition: v.definition, partOfSpeech: v.part_of_speech })),
       activo: t.status === 'active',
@@ -311,6 +317,7 @@ const ConversationManagement = () => {
       id: "",
       titulo: "",
       promptSistema: "",
+      descripcion: "",
       nivel: "A1",
       vocabulario: [],
       activo: true,
@@ -334,7 +341,7 @@ const ConversationManagement = () => {
           // update topic
           const { error } = await supabase
             .from('ai_topics')
-            .update({ title: editingTopic.titulo, prompt: editingTopic.promptSistema, level: editingTopic.nivel, metadata: {}, status: editingTopic.activo ? 'active' : 'draft', emoji: editingTopic.emoji || null, points: (editingTopic as any).points ?? 0 })
+            .update({ title: editingTopic.titulo, prompt: editingTopic.promptSistema, description: editingTopic.descripcion || null, level: editingTopic.nivel, metadata: {}, status: editingTopic.activo ? 'active' : 'draft', emoji: editingTopic.emoji || null, points: (editingTopic as any).points ?? 0 })
             .eq('id', editingTopic.id);
 
           if (error) throw error;
@@ -350,7 +357,7 @@ const ConversationManagement = () => {
           toast({ title: "Tema actualizado", description: "El tema ha sido actualizado correctamente." });
         } else {
           // create topic
-          const { data: created, error } = await supabase.from('ai_topics').insert({ title: editingTopic.titulo, prompt: editingTopic.promptSistema, level: editingTopic.nivel, metadata: {}, status: editingTopic.activo ? 'active' : 'draft', emoji: editingTopic.emoji || null, points: (editingTopic as any).points ?? 0 }).select().single();
+          const { data: created, error } = await supabase.from('ai_topics').insert({ title: editingTopic.titulo, prompt: editingTopic.promptSistema, description: editingTopic.descripcion || null, level: editingTopic.nivel, metadata: {}, status: editingTopic.activo ? 'active' : 'draft', emoji: editingTopic.emoji || null, points: (editingTopic as any).points ?? 0 }).select().single();
           if (error) throw error;
 
           if (editingTopic.vocabulario.length > 0) {
@@ -391,6 +398,12 @@ const ConversationManagement = () => {
         })();
       },
     });
+  };
+
+  const handleEmojiClick = (emojiData: any, _event: any) => {
+    const emojiChar = emojiData?.emoji || emojiData?.native || '';
+    setEditingTopic(prev => prev ? { ...prev, emoji: emojiChar } : null);
+    setShowEmojiPicker(false);
   };
 
   const handleToggleTopicStatus = (id: string) => {
@@ -490,7 +503,7 @@ const ConversationManagement = () => {
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-muted-foreground mb-4 line-clamp-3">
-                    {topic.promptSistema}
+                    {topic.descripcion || topic.promptSistema}
                   </p>
                   <div className="mb-4">
                     <p className="text-sm font-medium mb-2">Vocabulario ({topic.vocabulario.length} palabras)</p>
@@ -666,13 +679,41 @@ const ConversationManagement = () => {
               />
             </div>
             <div>
-              <Label htmlFor="emoji">Emoji</Label>
-              <Input
-                id="emoji"
-                value={editingTopic?.emoji || ""}
-                onChange={(e) => setEditingTopic(prev => prev ? { ...prev, emoji: e.target.value } : null)}
-                placeholder="Ejemplo: 🍽️"
+              <Label htmlFor="descripcion">Descripción (mostrada en listado)</Label>
+              <Textarea
+                id="descripcion"
+                rows={3}
+                value={editingTopic?.descripcion || ""}
+                onChange={(e) => setEditingTopic(prev => prev ? { ...prev, descripcion: e.target.value } : null)}
+                placeholder="Breve descripción que se mostrará en el listado"
               />
+            </div>
+            <div>
+              <Label>Emoji</Label>
+              <div className="flex items-center gap-2">
+                <div className="text-2xl">{editingTopic?.emoji || '💬'}</div>
+                <Input
+                  id="emoji"
+                  value={editingTopic?.emoji || ""}
+                  onChange={(e) => setEditingTopic(prev => prev ? { ...prev, emoji: e.target.value } : null)}
+                  placeholder="Ejemplo: 🍽️"
+                />
+                <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
+                  <PopoverTrigger asChild>
+                    <Button type="button" variant="outline" size="sm">
+                      {showEmojiPicker ? 'Cerrar' : 'Seleccionar'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="p-0 -translate-x-20">
+                    <div className="p-2">
+                      <Suspense fallback={<div className="p-3">Cargando selector...</div>}>
+                        {/* @ts-ignore */}
+                        <EmojiPicker onEmojiClick={handleEmojiClick} />
+                      </Suspense>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
             </div>
             <div>
               <Label htmlFor="nivel">Nivel Asociado</Label>

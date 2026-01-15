@@ -87,7 +87,7 @@ export default function LessonFormModal({ isOpen, onClose, onSave, lesson }: Les
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {lesson ? "Editar Lección" : "Crear Nueva Lección"}

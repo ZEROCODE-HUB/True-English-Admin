@@ -26,7 +26,7 @@ export default function OnboardingQuizModal({
     opcion4: "",
     respuestaCorrecta: 1,
     incluirEnTest: true,
-    points: 0
+
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -39,7 +39,7 @@ export default function OnboardingQuizModal({
         opcion4: question.opcion4,
         respuestaCorrecta: question.respuestaCorrecta,
         incluirEnTest: question.incluirEnTest,
-        points: (question as any).points ?? 0
+
       });
     } else {
       setFormData({
@@ -61,7 +61,7 @@ export default function OnboardingQuizModal({
     if (!formData.opcion2.trim()) newErrors.opcion2 = "La opción 2 es requerida";
     if (!formData.opcion3.trim()) newErrors.opcion3 = "La opción 3 es requerida";
     if (!formData.opcion4.trim()) newErrors.opcion4 = "La opción 4 es requerida";
-    if (typeof (formData as any).points !== 'number' || Number.isNaN((formData as any).points) || (formData as any).points < 0) newErrors.points = 'Puntos inválidos';
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -135,11 +135,7 @@ export default function OnboardingQuizModal({
           </div>
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="points">Puntos Ganados</Label>
-          <Input id="points" type="number" min={0} step={1} value={String((formData as any).points ?? 0)} onChange={e => setFormData(prev => ({ ...prev, points: Math.max(0, parseInt(e.target.value || '0') || 0) }))} className={errors.points ? 'border-destructive' : ''} />
-          {errors.points && <p className="text-sm text-destructive">{errors.points}</p>}
-        </div>
+
 
         <div className="space-y-3">
           <Label>Respuesta Correcta *</Label>

@@ -4,16 +4,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { ChallengeQuestion } from "./QuizManagement";
 
 interface CreateChallengeQuestionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (data: Omit<ChallengeQuestion, 'id' | 'challengeId'> & { imageFile?: File | null; audioFile?: File | null }) => void;
+  onSave: (data: Omit<ChallengeQuestion, 'id' | 'challengeId'> & { challengeId?: string | null; imageFile?: File | null; audioFile?: File | null }) => void;
   question?: ChallengeQuestion | null;
+  challenges?: { id: string; titulo?: string }[];
+  defaultChallengeId?: string | null;
 }
 
-export default function CreateChallengeQuestionModal({ isOpen, onClose, onSave, question }: CreateChallengeQuestionModalProps) {
+export default function CreateChallengeQuestionModal({ isOpen, onClose, onSave, question, challenges = [], defaultChallengeId = null }: CreateChallengeQuestionModalProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [pregunta, setPregunta] = useState("");
   const [imagen, setImagen] = useState<string | undefined>(undefined);
@@ -23,6 +26,7 @@ export default function CreateChallengeQuestionModal({ isOpen, onClose, onSave, 
   const [opciones, setOpciones] = useState<string[]>(["", ""]);
   const [respuestaCorrecta, setRespuestaCorrecta] = useState<number>(1);
   const [activa, setActiva] = useState(true);
+  const [challengeId, setChallengeId] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -34,6 +38,7 @@ export default function CreateChallengeQuestionModal({ isOpen, onClose, onSave, 
       setOpciones(question.opciones.length ? question.opciones : ["", ""]);
       setRespuestaCorrecta(question.respuestaCorrecta);
       setActiva(question.activa);
+      setChallengeId((question as any).challengeId ?? null);
     } else {
       setPregunta("");
       setImagen(undefined);
@@ -41,6 +46,7 @@ export default function CreateChallengeQuestionModal({ isOpen, onClose, onSave, 
       setOpciones(["", ""]);
       setRespuestaCorrecta(1);
       setActiva(true);
+      setChallengeId(defaultChallengeId ?? (challenges[0]?.id ?? null));
     }
   }, [question, isOpen]);
 
@@ -67,6 +73,7 @@ export default function CreateChallengeQuestionModal({ isOpen, onClose, onSave, 
 
   const validate = () => {
     if (!pregunta.trim()) return false;
+    if (!challengeId) return false;
     const filledOptions = opciones.filter(o => o.trim() !== "");
     if (filledOptions.length < 2) return false;
     if (respuestaCorrecta < 1 || respuestaCorrecta > opciones.length) return false;
@@ -88,7 +95,8 @@ export default function CreateChallengeQuestionModal({ isOpen, onClose, onSave, 
           audioFile,
           opciones: opciones.map(o => o.trim()),
           respuestaCorrecta,
-          activa
+          activa,
+          challengeId
         }) as any);
       } finally {
         setIsSaving(false);
@@ -102,8 +110,18 @@ export default function CreateChallengeQuestionModal({ isOpen, onClose, onSave, 
         <DialogHeader>
           <DialogTitle>{question ? "Editar Pregunta de Desafío" : "Nueva Pregunta de Desafío"}</DialogTitle>
         </DialogHeader>
-
         <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-2">
+            <Label>Asociar a Desafío *</Label>
+            <Select value={challengeId ?? ''} onValueChange={(v) => setChallengeId(v || null)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecciona un desafío..." />
+              </SelectTrigger>
+              <SelectContent>
+                {(challenges || []).map(c => <SelectItem key={c.id} value={c.id}>{c.titulo}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="pregunta">Pregunta *</Label>
             <Textarea id="pregunta" placeholder="Escribe la pregunta aquí..." value={pregunta} onChange={e => setPregunta(e.target.value)} />

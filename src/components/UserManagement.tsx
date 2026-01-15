@@ -163,14 +163,66 @@ export default function UserManagement() {
     setDeleteDialog({
       isOpen: true,
       onConfirm: async () => {
-        // Delete profile row in Supabase
-        const { error } = await supabase.from('profiles').delete().eq('id', userId);
-        if (error) {
-          toast({ title: 'Error', description: error.message, variant: 'destructive' });
-          return;
+        try {
+          // Try invoking via supabase client
+          let invokeResult: any;
+          try {
+            invokeResult = await supabase.functions.invoke('delete-user', {
+              method: 'POST',
+              body: JSON.stringify({ userId }),
+            });
+          } catch (invokeErr) {
+            console.error('supabase.functions.invoke threw', invokeErr);
+            invokeResult = { error: invokeErr };
+          }
+
+          // If supabase client returned an error, attempt fetch fallback
+          if (invokeResult?.error) {
+            // Try to extract server message
+            const serverMsg = invokeResult?.error?.message || String(invokeResult?.error);
+            console.warn('Invoke error, attempting fetch fallback:', serverMsg);
+
+            // build functions URL from VITE_SUPABASE_URL
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+            const projectHost = supabaseUrl.replace(/^https?:\/\//, '').replace('.supabase.co', '');
+            const functionsUrl = `https://${projectHost}.functions.supabase.co/delete-user`;
+
+            // Get session token to forward Authorization
+            const sessionResp = await supabase.auth.getSession();
+            const token = sessionResp?.data?.session?.access_token;
+
+            try {
+              const resp = await fetch(functionsUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({ userId }),
+              });
+              const text = await resp.text();
+              let parsed: any = null;
+              try { parsed = JSON.parse(text); } catch { }
+              if (!resp.ok) {
+                const msg = parsed?.error ? `${parsed.error}: ${parsed.details ?? ''}` : text || resp.statusText;
+                toast({ title: 'Error', description: `Function error: ${msg}`, variant: 'destructive' });
+                console.error('Function fetch response error', resp.status, text);
+                return;
+              }
+            } catch (fetchErr) {
+              toast({ title: 'Error', description: `No se pudo invocar la función: ${String(fetchErr)}`, variant: 'destructive' });
+              console.error('fetch fallback failed', fetchErr);
+              return;
+            }
+          }
+
+          // Success: update UI
+          setUsers(users.filter(u => u.id !== userId));
+          toast({ title: 'Usuario eliminado', description: 'El usuario ha sido eliminado correctamente.' });
+        } catch (err) {
+          toast({ title: 'Error', description: String(err), variant: 'destructive' });
+          console.error('final delete error', err);
         }
-        setUsers(users.filter(u => u.id !== userId));
-        toast({ title: 'Usuario eliminado', description: 'El usuario ha sido eliminado correctamente.' });
       },
     });
   };
@@ -216,31 +268,65 @@ export default function UserManagement() {
         await fetchUsers();
       }
     } else {
-      // Creating new user: create auth user then insert profile
+      // Creating new user via Edge Function to avoid creating session for the new user
       try {
         const password = String(userData.password ?? '');
         if (!password) {
           toast({ title: 'Error', description: 'La contraseña es requerida para crear un usuario.', variant: 'destructive' });
           return;
         }
-        const { data: signData, error: signError } = await supabase.auth.signUp({ email: String(userData.email ?? ''), password });
-        if (signError) {
-          toast({ title: 'Error creando usuario', description: signError.message, variant: 'destructive' });
-          return;
+
+        const fnPayload = {
+          email: String(userData.email ?? ''),
+          password,
+          name: userData.nombre ?? null,
+          last_name: userData.apellido ?? null,
+          phone: userData.celular ?? null,
+          birth_date: userData.fechaNacimiento ?? null,
+          nivel_actual: userData.nivelActual ?? null,
+          status: userData.estado ?? 'activo',
+          tipo: userData.tipoUsuario ?? 'alumno',
+          code: userData.codigoInvitacion ?? null,
+        };
+
+        // Try invoking via supabase client
+        let fnResult: any;
+        try {
+          fnResult = await supabase.functions.invoke('create-user', { method: 'POST', body: JSON.stringify(fnPayload) });
+        } catch (invokeErr) {
+          console.error('functions.invoke error', invokeErr);
+          fnResult = { error: invokeErr };
         }
-        const signObj = signData as { user?: { id?: string } } | undefined;
-        const userId = signObj?.user?.id;
-        if (!userId) {
-          toast({ title: 'Error', description: 'No se pudo obtener el id del usuario creado.', variant: 'destructive' });
-          return;
+
+        if (fnResult?.error) {
+          // fallback to direct fetch
+          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+          const projectHost = supabaseUrl.replace(/^https?:\/\//, '').replace('.supabase.co', '');
+          const functionsUrl = `https://${projectHost}.functions.supabase.co/create-user`;
+          const sessionResp = await supabase.auth.getSession();
+          const token = sessionResp?.data?.session?.access_token;
+          try {
+            const resp = await fetch(functionsUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+              body: JSON.stringify(fnPayload),
+            });
+            const text = await resp.text();
+            let parsed = null;
+            try { parsed = JSON.parse(text); } catch { }
+            if (!resp.ok) {
+              const msg = parsed?.error ? `${parsed.error}: ${parsed.details ?? ''}` : text || resp.statusText;
+              toast({ title: 'Error', description: `Function error: ${msg}`, variant: 'destructive' });
+              console.error('create-user function error', resp.status, text);
+              return;
+            }
+          } catch (fetchErr) {
+            toast({ title: 'Error', description: `No se pudo invocar la función: ${String(fetchErr)}`, variant: 'destructive' });
+            console.error('fetch create-user failed', fetchErr);
+            return;
+          }
         }
-        const insertObj = { id: userId, ...payload };
-        // Use upsert to avoid duplicate-key errors if a profile already exists for this id
-        const { error: insertError } = await supabase.from('profiles').upsert(insertObj, { onConflict: 'id' });
-        if (insertError) {
-          toast({ title: 'Error', description: insertError.message, variant: 'destructive' });
-          return;
-        }
+
         toast({ title: 'Usuario creado', description: 'El nuevo usuario ha sido creado correctamente.' });
         await fetchUsers();
       } catch (err) {

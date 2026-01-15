@@ -729,7 +729,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
 
       {/* Note Modal */}
       <Dialog open={isNoteModalOpen} onOpenChange={setIsNoteModalOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingNote ? "Editar Nota" : "Nueva Nota"}
@@ -817,10 +817,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
               />
               <Label>Nota Activa</Label>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="note-points">Puntos Ganados</Label>
-              <Input id="note-points" type="number" min={0} step={1} value={String((noteForm as any).points ?? 0)} onChange={(e) => setNoteForm(prev => ({ ...prev, points: Math.max(0, parseInt(e.target.value || '0') || 0) }))} />
-            </div>
+
             <div className="flex justify-end gap-3">
               <Button variant="outline" onClick={() => setIsNoteModalOpen(false)} disabled={isNoteSaving}>
                 Cancelar
