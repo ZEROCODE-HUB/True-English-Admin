@@ -6,6 +6,7 @@ import {
   Brain,
   MessageSquare,
   BarChart3,
+  CreditCard,
   LogOut
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ const menuItems = [
   { id: "courses", title: "Gestión de Cursos", icon: BookOpen },
   { id: "quizzes", title: "Gestión de Quizzes", icon: Brain },
   { id: "conversations", title: "Conversaciones con IA", icon: MessageSquare },
+  { id: "plans", title: "Planes", icon: CreditCard },
 ];
 export default function AdminLayout() {
   const navigate = useNavigate();
