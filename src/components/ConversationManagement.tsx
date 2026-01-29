@@ -69,6 +69,7 @@ const ConversationManagement = () => {
   const [selectedLog, setSelectedLog] = useState<ConversationLog | null>(null);
   const [selectedConversationMessages, setSelectedConversationMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; timestamp: string }>>([]);
   const [selectedConversationScores, setSelectedConversationScores] = useState<any[]>([]);
+  const [selectedConversationMeta, setSelectedConversationMeta] = useState<any | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const [isTopicModalOpen, setIsTopicModalOpen] = useState(false);
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
@@ -120,7 +121,7 @@ const ConversationManagement = () => {
   const loadTopics = async () => {
     const { data, error } = await supabase
       .from('ai_topics')
-      .select(`id, title, emoji, level, prompt, description, status, ai_topic_vocab(id, word, definition, part_of_speech)`)
+      .select(`id, title, emoji, level, prompt, description, status, points, ai_topic_vocab(id, word, definition, part_of_speech)`)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -136,7 +137,7 @@ const ConversationManagement = () => {
       emoji: t.emoji || ''
     }));
 
-    // map points if available
+    // map points if available (DB uses `points` column)
     mapped.forEach((m, idx) => {
       const raw = (data || [])[idx] || {};
       (m as any).points = (raw.points ?? raw.puntos ?? 0) as number;
@@ -299,6 +300,14 @@ const ConversationManagement = () => {
       }));
       setSelectedConversationScores(parsedScores);
 
+      // fetch conversation metadata (puntos, periodos, status)
+      try {
+        const { data: convMeta, error: convMetaErr } = await supabase.from('ai_conversations').select('id, puntos, current_period_start, current_period_end, status').eq('id', convId).single();
+        if (!convMetaErr) setSelectedConversationMeta(convMeta as any);
+      } catch (e) {
+        setSelectedConversationMeta(null);
+      }
+
       // Try to scroll transcript to bottom so latest messages are visible
       setTimeout(() => {
         try {
@@ -309,6 +318,7 @@ const ConversationManagement = () => {
       console.error('Error fetching conversation detail', err);
       setSelectedConversationMessages([]);
       setSelectedConversationScores([]);
+      setSelectedConversationMeta(null);
     }
   };
 
@@ -854,6 +864,17 @@ const ConversationManagement = () => {
                   </div>
                 </div>
 
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label>Puntos</Label>
+                    <Input type="number" min={0} value={String(selectedConversationMeta?.puntos ?? 0)} onChange={(e) => setSelectedConversationMeta(prev => ({ ...(prev || {}), puntos: Math.max(0, parseInt(e.target.value || '0') || 0) }))} />
+                  </div>
+                  <div>
+                    <Label>Periodo Actual</Label>
+                    <p className="text-sm">{selectedConversationMeta?.current_period_start ? `${new Date(selectedConversationMeta.current_period_start).toLocaleDateString()} - ${selectedConversationMeta?.current_period_end ? new Date(selectedConversationMeta.current_period_end).toLocaleDateString() : ''}` : '—'}</p>
+                  </div>
+                </div>
+
                 <div>
                   <Label>Puntuaciones Detalladas</Label>
                   <div className="mt-2">
@@ -925,6 +946,26 @@ const ConversationManagement = () => {
               </div>
             </div>
           )}
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => {
+              // refresh detail
+              if (selectedLog) fetchConversationDetail(selectedLog.id);
+            }}>Refrescar</Button>
+            <Button onClick={async () => {
+              if (!selectedLog || !selectedConversationMeta) return;
+              try {
+                const { error } = await supabase.from('ai_conversations').update({ puntos: selectedConversationMeta.puntos ?? 0 }).eq('id', selectedLog.id);
+                if (error) throw error;
+                toast({ title: 'Guardado', description: 'Puntos actualizados correctamente.' });
+                // refresh logs list and detail
+                await loadLogs();
+                await fetchConversationDetail(selectedLog.id);
+              } catch (err) {
+                console.error('Error updating puntos', err);
+                toast({ title: 'Error', description: 'No se pudo actualizar puntos.' });
+              }
+            }}>Guardar cambios</Button>
+          </div>
         </DialogContent>
       </Dialog>
 

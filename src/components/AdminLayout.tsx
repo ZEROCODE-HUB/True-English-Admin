@@ -23,6 +23,7 @@ const menuItems = [
   { id: "quizzes", title: "Gestión de Quizzes", icon: Brain },
   { id: "conversations", title: "Conversaciones con IA", icon: MessageSquare },
   { id: "plans", title: "Planes", icon: CreditCard },
+  { id: "subscriptions", title: "Suscripciones", icon: BarChart3 },
 ];
 export default function AdminLayout() {
   const navigate = useNavigate();
