@@ -12,7 +12,24 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Switch } from "@/components/ui/switch";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, Plus, Edit, Trash2, Eye, Filter } from "lucide-react";
+import { CalendarIcon, Plus, Edit, Trash2, Eye, Filter, GripVertical, ArrowUpDown } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
@@ -60,6 +77,44 @@ interface ConversationLog {
 
 // We'll load topics and logs from Supabase instead of using hardcoded mock data.
 
+interface SortableTopicRowProps {
+  topic: ConversationTopic;
+}
+
+const SortableTopicRow = ({ topic }: SortableTopicRowProps) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: topic.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex w-full min-w-0 items-center gap-3 p-3 border rounded-lg bg-card overflow-hidden"
+    >
+      <button
+        {...attributes}
+        {...listeners}
+        className="cursor-grab touch-none text-muted-foreground hover:text-foreground focus:outline-none"
+        aria-label="Arrastrar para reordenar"
+      >
+        <GripVertical className="w-5 h-5" />
+      </button>
+      <div className="text-xl shrink-0">{topic.emoji || '💬'}</div>
+      <div className="flex-1 min-w-0">
+        <p className="font-medium truncate">{topic.titulo}</p>
+        {topic.descripcion && (
+          <p className="text-xs text-muted-foreground truncate">{topic.descripcion}</p>
+        )}
+      </div>
+      <Badge variant="secondary" className="shrink-0">{topic.nivel}</Badge>
+      {!topic.activo && <Badge variant="outline" className="text-xs shrink-0">Inactivo</Badge>}
+    </div>
+  );
+};
+
 const ConversationManagement = () => {
   const [topics, setTopics] = useState<ConversationTopic[]>([]);
   const [logs, setLogs] = useState<ConversationLog[]>([]);
@@ -85,7 +140,15 @@ const ConversationManagement = () => {
     isOpen: boolean;
     onConfirm: () => void;
   }>({ isOpen: false, onConfirm: () => { } });
+  const [reorderMode, setReorderMode] = useState(false);
+  const [reorderedTopics, setReorderedTopics] = useState<ConversationTopic[]>([]);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
   const { toast } = useToast();
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   const levels = ["A1", "A2", "B1", "B2", "C1", "C2"];
   const partsOfSpeech = ["noun", "verb", "adjective", "adverb", "preposition", "conjunction"];
@@ -121,8 +184,8 @@ const ConversationManagement = () => {
   const loadTopics = async () => {
     const { data, error } = await supabase
       .from('ai_topics')
-      .select(`id, title, emoji, level, prompt, description, status, points, ai_topic_vocab(id, word, definition, part_of_speech)`)
-      .order('created_at', { ascending: false });
+      .select(`id, title, emoji, level, prompt, description, status, points, sort_order, ai_topic_vocab(id, word, definition, part_of_speech)`)
+      .order('sort_order', { ascending: true });
 
     if (error) throw error;
 
@@ -137,13 +200,57 @@ const ConversationManagement = () => {
       emoji: t.emoji || ''
     }));
 
-    // map points if available (DB uses `points` column)
+    // map points and sort_order
     mapped.forEach((m, idx) => {
       const raw = (data || [])[idx] || {};
       (m as any).points = (raw.points ?? raw.puntos ?? 0) as number;
+      (m as any).sort_order = (raw.sort_order ?? 0) as number;
     });
 
     setTopics(mapped);
+  };
+
+  const handleEnterReorderMode = () => {
+    setReorderedTopics([...topics]);
+    setReorderMode(true);
+  };
+
+  const handleCancelReorder = () => {
+    setReorderMode(false);
+    setReorderedTopics([]);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setReorderedTopics((prev) => {
+        const oldIndex = prev.findIndex(t => t.id === active.id);
+        const newIndex = prev.findIndex(t => t.id === over.id);
+        return arrayMove(prev, oldIndex, newIndex);
+      });
+    }
+  };
+
+  const handleSaveOrder = async () => {
+    const previousOrder = [...topics];
+    setIsSavingOrder(true);
+    try {
+      await Promise.all(
+        reorderedTopics.map((t, i) =>
+          supabase.from('ai_topics').update({ sort_order: i + 1 }).eq('id', t.id)
+        )
+      );
+      await loadTopics();
+      setReorderMode(false);
+      setReorderedTopics([]);
+      toast({ title: 'Orden guardado', description: 'El orden de los temas fue actualizado.' });
+    } catch (err) {
+      console.error(err);
+      setReorderedTopics(previousOrder);
+      toast({ title: 'Error al guardar', description: 'No se pudo guardar el nuevo orden. Se revirtió al orden anterior.' });
+    } finally {
+      setIsSavingOrder(false);
+    }
   };
 
   const handleTabChange = (value: string) => {
@@ -366,8 +473,9 @@ const ConversationManagement = () => {
 
           toast({ title: "Tema actualizado", description: "El tema ha sido actualizado correctamente." });
         } else {
-          // create topic
-          const { data: created, error } = await supabase.from('ai_topics').insert({ title: editingTopic.titulo, prompt: editingTopic.promptSistema, description: editingTopic.descripcion || null, level: editingTopic.nivel, metadata: {}, status: editingTopic.activo ? 'active' : 'draft', emoji: editingTopic.emoji || null, points: (editingTopic as any).points ?? 0 }).select().single();
+          // create topic — sort_order al final de la lista actual
+          const maxSortOrder = topics.reduce((max, t) => Math.max(max, (t as any).sort_order ?? 0), 0);
+          const { data: created, error } = await supabase.from('ai_topics').insert({ title: editingTopic.titulo, prompt: editingTopic.promptSistema, description: editingTopic.descripcion || null, level: editingTopic.nivel, metadata: {}, status: editingTopic.activo ? 'active' : 'draft', emoji: editingTopic.emoji || null, points: (editingTopic as any).points ?? 0, sort_order: maxSortOrder + 1 }).select().single();
           if (error) throw error;
 
           if (editingTopic.vocabulario.length > 0) {
@@ -485,63 +593,99 @@ const ConversationManagement = () => {
         <TabsContent value="topics" className="space-y-4">
           <div className="flex justify-between items-center">
             <h2 className="text-2xl font-semibold">Temas de Conversación</h2>
-            <Button onClick={handleCreateTopic}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nuevo Tema
-            </Button>
+            <div className="flex gap-2">
+              {!reorderMode ? (
+                <>
+                  {topics.length > 1 && (
+                    <Button variant="outline" onClick={handleEnterReorderMode}>
+                      <ArrowUpDown className="w-4 h-4 mr-2" />
+                      Reordenar
+                    </Button>
+                  )}
+                  <Button onClick={handleCreateTopic}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Nuevo Tema
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button variant="outline" onClick={handleCancelReorder} disabled={isSavingOrder}>
+                    Cancelar
+                  </Button>
+                  <Button onClick={handleSaveOrder} disabled={isSavingOrder}>
+                    {isSavingOrder ? 'Guardando...' : 'Guardar orden'}
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {topics.map((topic) => (
-              <Card key={topic.id} className={topic.activo ? '' : 'opacity-60'}>
-                <CardHeader>
-                  <div className="flex justify-between items-start">
-                    <div className="flex items-center gap-3">
-                      <div className="text-2xl">{topic.emoji || '💬'}</div>
-                      <div>
-                        <CardTitle className="text-lg">{topic.titulo}</CardTitle>
-                        <div className="mt-1">
-                          <Badge variant="secondary">{topic.nivel}</Badge>
+          {reorderMode ? (
+            <div className="space-y-2 w-full overflow-x-hidden">
+              <p className="text-sm text-muted-foreground">Arrastra los temas para cambiar su orden. Haz clic en "Guardar orden" cuando termines.</p>
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={reorderedTopics.map(t => t.id)} strategy={verticalListSortingStrategy}>
+                  <div className="space-y-2 w-full">
+                    {reorderedTopics.map((topic) => (
+                      <SortableTopicRow key={topic.id} topic={topic} />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {topics.map((topic) => (
+                <Card key={topic.id} className={topic.activo ? '' : 'opacity-60'}>
+                  <CardHeader>
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center gap-3">
+                        <div className="text-2xl">{topic.emoji || '💬'}</div>
+                        <div>
+                          <CardTitle className="text-lg">{topic.titulo}</CardTitle>
+                          <div className="mt-1">
+                            <Badge variant="secondary">{topic.nivel}</Badge>
+                          </div>
                         </div>
                       </div>
+                      <Switch
+                        checked={topic.activo}
+                        onCheckedChange={() => handleToggleTopicStatus(topic.id)}
+                      />
                     </div>
-                    <Switch
-                      checked={topic.activo}
-                      onCheckedChange={() => handleToggleTopicStatus(topic.id)}
-                    />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground mb-4 line-clamp-3">
-                    {topic.descripcion || topic.promptSistema}
-                  </p>
-                  <div className="mb-4">
-                    <p className="text-sm font-medium mb-2">Vocabulario ({topic.vocabulario.length} palabras)</p>
-                    <div className="flex flex-wrap gap-1">
-                      {topic.vocabulario.slice(0, 3).map((word) => (
-                        <Badge key={word.id} variant="outline" className="text-xs">
-                          {word.word}
-                        </Badge>
-                      ))}
-                      {topic.vocabulario.length > 3 && (
-                        <Badge variant="outline" className="text-xs">
-                          +{topic.vocabulario.length - 3} más
-                        </Badge>
-                      )}
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground mb-4 line-clamp-3">
+                      {topic.descripcion || topic.promptSistema}
+                    </p>
+                    <div className="mb-4">
+                      <p className="text-sm font-medium mb-2">Vocabulario ({topic.vocabulario.length} palabras)</p>
+                      <div className="flex flex-wrap gap-1">
+                        {topic.vocabulario.slice(0, 3).map((word) => (
+                          <Badge key={word.id} variant="outline" className="text-xs">
+                            {word.word}
+                          </Badge>
+                        ))}
+                        {topic.vocabulario.length > 3 && (
+                          <Badge variant="outline" className="text-xs">
+                            +{topic.vocabulario.length - 3} más
+                          </Badge>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => handleEditTopic(topic)}>
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleDeleteTopic(topic.id)}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => handleEditTopic(topic)}>
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => handleDeleteTopic(topic.id)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="logs" className="space-y-4">

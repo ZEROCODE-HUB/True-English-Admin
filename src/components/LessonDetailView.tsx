@@ -1,6 +1,23 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import DOMPurify from 'dompurify';
-import { ArrowLeft, Plus, Edit, Trash2, Upload, Eye, EyeOff, FileText, BookOpen, ChevronUp, ChevronDown, Loader2 } from "lucide-react";
+import { ArrowLeft, Plus, Edit, Trash2, Upload, Eye, EyeOff, FileText, BookOpen, GripVertical, ArrowUpDown, Loader2 } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -549,90 +566,66 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
     })();
   };
 
-  const handleMoveUp = (itemId: string) => {
-    const currentIndex = contentItems.findIndex(item => item.id === itemId);
-    if (currentIndex <= 0) return;
+  const [contentReorderMode, setContentReorderMode] = useState(false);
+  const [reorderedContentItems, setReorderedContentItems] = useState<ContentItem[]>([]);
+  const [isSavingContentOrder, setIsSavingContentOrder] = useState(false);
 
-    const updatedLesson = { ...currentLesson };
-    const reorderedItems = [...contentItems];
+  const contentSensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
-    // Swap with previous item
-    [reorderedItems[currentIndex - 1], reorderedItems[currentIndex]] =
-      [reorderedItems[currentIndex], reorderedItems[currentIndex - 1]];
-
-    // Update orden values for all items
-    reorderedItems.forEach((item, index) => {
-      item.orden = index;
-    });
-
-    // Separate back into notes and exercises
-    updatedLesson.notas = reorderedItems
-      .filter((item): item is Note & { type: 'note' } => item.type === 'note')
-      .map(({ type, ...note }) => note);
-
-    updatedLesson.ejercicios = reorderedItems
-      .filter((item): item is Exercise & { type: 'exercise' } => item.type === 'exercise')
-      .map(({ type, ...exercise }) => exercise);
-
-    setCurrentLesson(updatedLesson);
-    // persist orders
-    (async () => {
-      try {
-        // update notes
-        for (const n of updatedLesson.notas) {
-          await supabase.from('notes').update({ "order": n.orden }).eq('id', n.id);
-        }
-        for (const e of updatedLesson.ejercicios) {
-          await supabase.from('exercises').update({ "order": e.orden }).eq('id', e.id);
-        }
-        await loadDetail();
-      } catch (err) {
-        console.error('Error updating order', err);
-        toast({ title: 'Error', description: 'No se pudo actualizar el orden.' });
-      }
-    })();
+  const handleEnterContentReorderMode = () => {
+    setReorderedContentItems([...contentItems]);
+    setContentReorderMode(true);
   };
 
-  const handleMoveDown = (itemId: string) => {
-    const currentIndex = contentItems.findIndex(item => item.id === itemId);
-    if (currentIndex >= contentItems.length - 1) return;
+  const handleCancelContentReorder = () => {
+    setContentReorderMode(false);
+    setReorderedContentItems([]);
+  };
 
-    const updatedLesson = { ...currentLesson };
-    const reorderedItems = [...contentItems];
-
-    // Swap with next item
-    [reorderedItems[currentIndex], reorderedItems[currentIndex + 1]] =
-      [reorderedItems[currentIndex + 1], reorderedItems[currentIndex]];
-
-    // Update orden values for all items
-    reorderedItems.forEach((item, index) => {
-      item.orden = index;
+  const handleContentDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setReorderedContentItems(prev => {
+      const oldIndex = prev.findIndex(item => item.id === active.id);
+      const newIndex = prev.findIndex(item => item.id === over.id);
+      return arrayMove(prev, oldIndex, newIndex);
     });
+  };
 
-    // Separate back into notes and exercises
-    updatedLesson.notas = reorderedItems
-      .filter((item): item is Note & { type: 'note' } => item.type === 'note')
-      .map(({ type, ...note }) => note);
+  const handleSaveContentOrder = async () => {
+    const previousItems = [...contentItems];
+    setIsSavingContentOrder(true);
+    try {
+      const itemsWithOrder = reorderedContentItems.map((item, index) => ({ ...item, orden: index }));
+      const updatedLesson = { ...currentLesson };
+      updatedLesson.notas = itemsWithOrder
+        .filter((item): item is Note & { type: 'note' } => item.type === 'note')
+        .map(({ type, ...note }) => note);
+      updatedLesson.ejercicios = itemsWithOrder
+        .filter((item): item is Exercise & { type: 'exercise' } => item.type === 'exercise')
+        .map(({ type, ...exercise }) => exercise);
 
-    updatedLesson.ejercicios = reorderedItems
-      .filter((item): item is Exercise & { type: 'exercise' } => item.type === 'exercise')
-      .map(({ type, ...exercise }) => exercise);
-
-    setCurrentLesson(updatedLesson);
-    (async () => {
-      try {
-        for (const n of updatedLesson.notas) {
-          await supabase.from('notes').update({ "order": n.orden }).eq('id', n.id);
-        }
-        for (const e of updatedLesson.ejercicios) {
-          await supabase.from('exercises').update({ "order": e.orden }).eq('id', e.id);
-        }
-        await loadDetail();
-      } catch (err) {
-        console.error('Error updating order', err);
-        toast({ title: 'Error', description: 'No se pudo actualizar el orden.' });
+      for (const n of updatedLesson.notas) {
+        await supabase.from('notes').update({ "order": n.orden }).eq('id', n.id);
       }
-    })();
+      for (const e of updatedLesson.ejercicios) {
+        await supabase.from('exercises').update({ "order": e.orden }).eq('id', e.id);
+      }
+      setCurrentLesson(updatedLesson);
+      setContentReorderMode(false);
+      setReorderedContentItems([]);
+      toast({ title: 'Orden guardado', description: 'El orden del contenido fue actualizado.' });
+      await loadDetail();
+    } catch (err) {
+      console.error('Error updating order', err);
+      setReorderedContentItems(previousItems);
+      toast({ title: 'Error al guardar', description: 'No se pudo guardar el orden. Se revirtió al anterior.' });
+    } finally {
+      setIsSavingContentOrder(false);
+    }
   };
 
   const addOption = () => {
@@ -689,14 +682,31 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Contenido de la Lección ({contentItems.length})</CardTitle>
           <div className="flex gap-2">
-            <Button onClick={handleCreateNote} size="sm" variant="outline">
-              <FileText className="w-4 h-4 mr-2" />
-              Nueva Nota
-            </Button>
-            <Button onClick={handleCreateExercise} size="sm">
-              <BookOpen className="w-4 h-4 mr-2" />
-              Nuevo Ejercicio
-            </Button>
+            {!contentReorderMode ? (
+              <>
+                {contentItems.length > 1 && (
+                  <Button onClick={handleEnterContentReorderMode} size="sm" variant="outline">
+                    <ArrowUpDown className="w-4 h-4 mr-2" />
+                    Reordenar
+                  </Button>
+                )}
+                <Button onClick={handleCreateNote} size="sm" variant="outline">
+                  <FileText className="w-4 h-4 mr-2" />
+                  Nueva Nota
+                </Button>
+                <Button onClick={handleCreateExercise} size="sm">
+                  <BookOpen className="w-4 h-4 mr-2" />
+                  Nuevo Ejercicio
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button size="sm" variant="outline" onClick={handleCancelContentReorder} disabled={isSavingContentOrder}>Cancelar</Button>
+                <Button size="sm" onClick={handleSaveContentOrder} disabled={isSavingContentOrder}>
+                  {isSavingContentOrder ? 'Guardando...' : 'Guardar orden'}
+                </Button>
+              </>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -704,16 +714,33 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
             <p className="text-muted-foreground text-center py-8">
               No hay contenido creado. Usa los botones "Nueva Nota" o "Nuevo Ejercicio" para comenzar.
             </p>
+          ) : contentReorderMode ? (
+            <DndContext sensors={contentSensors} collisionDetection={closestCenter} onDragEnd={handleContentDragEnd}>
+              <SortableContext items={reorderedContentItems.map(i => i.id)} strategy={verticalListSortingStrategy}>
+                <div className="space-y-4">
+                  {reorderedContentItems.map((item) => (
+                    <ContentItem
+                      key={item.id}
+                      item={item}
+                      reorderMode={true}
+                      onEditNote={handleEditNote}
+                      onDeleteNote={handleDeleteNote}
+                      onToggleNoteActive={handleToggleNoteActive}
+                      onEditExercise={handleEditExercise}
+                      onDeleteExercise={handleDeleteExercise}
+                      onToggleExerciseActive={handleToggleExerciseActive}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
           ) : (
             <div className="space-y-4">
-              {contentItems.map((item, index) => (
+              {contentItems.map((item) => (
                 <ContentItem
                   key={item.id}
                   item={item}
-                  isFirst={index === 0}
-                  isLast={index === contentItems.length - 1}
-                  onMoveUp={handleMoveUp}
-                  onMoveDown={handleMoveDown}
+                  reorderMode={false}
                   onEditNote={handleEditNote}
                   onDeleteNote={handleDeleteNote}
                   onToggleNoteActive={handleToggleNoteActive}
@@ -1040,10 +1067,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
 // Content Item Component
 function ContentItem({
   item,
-  isFirst,
-  isLast,
-  onMoveUp,
-  onMoveDown,
+  reorderMode,
   onEditNote,
   onDeleteNote,
   onToggleNoteActive,
@@ -1052,10 +1076,7 @@ function ContentItem({
   onToggleExerciseActive
 }: {
   item: ContentItem;
-  isFirst: boolean;
-  isLast: boolean;
-  onMoveUp: (id: string) => void;
-  onMoveDown: (id: string) => void;
+  reorderMode: boolean;
   onEditNote: (note: Note) => void;
   onDeleteNote: (id: string) => void;
   onToggleNoteActive: (id: string) => void;
@@ -1063,32 +1084,23 @@ function ContentItem({
   onDeleteExercise: (id: string) => void;
   onToggleExerciseActive: (id: string) => void;
 }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
+  const style = reorderMode ? { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 } : {};
+
   return (
-    <div className={`border rounded-lg p-4 ${!item.activo ? 'opacity-50 bg-muted/30' : ''}`}>
+    <div ref={setNodeRef} style={style} className={`border rounded-lg p-4 ${!item.activo ? 'opacity-50 bg-muted/30' : ''}`}>
       <div className="flex justify-between items-start gap-4">
         <div className="flex items-start gap-3 flex-1">
-          <div className="flex flex-col gap-1 mt-1">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onMoveUp(item.id)}
-              disabled={isFirst}
-              className="h-7 w-7 p-0"
-              title="Subir"
+          {reorderMode && (
+            <button
+              {...attributes}
+              {...listeners}
+              className="cursor-grab touch-none text-muted-foreground hover:text-foreground focus:outline-none mt-1"
+              aria-label="Arrastrar para reordenar"
             >
-              <ChevronUp className="w-4 h-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onMoveDown(item.id)}
-              disabled={isLast}
-              className="h-7 w-7 p-0"
-              title="Bajar"
-            >
-              <ChevronDown className="w-4 h-4" />
-            </Button>
-          </div>
+              <GripVertical className="w-5 h-5" />
+            </button>
+          )}
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-2">
               {item.type === 'note' ? (

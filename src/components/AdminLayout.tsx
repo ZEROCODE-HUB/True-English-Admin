@@ -129,7 +129,7 @@ export default function AdminLayout() {
           </SidebarContent>
         </Sidebar>
 
-        <main className="flex-1 bg-background">
+        <main className="flex-1 min-w-0 bg-background overflow-x-hidden">
           <div className="p-6">
             <Outlet />
           </div>
