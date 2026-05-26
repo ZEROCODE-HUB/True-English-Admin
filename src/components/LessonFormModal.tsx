@@ -62,7 +62,11 @@ export default function LessonFormModal({ isOpen, onClose, onSave, lesson }: Les
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
-    if (!formData.titulo.trim()) newErrors.titulo = "El título es requerido";
+    if (!formData.titulo.trim()) {
+      newErrors.titulo = "El título es requerido";
+    } else if (formData.titulo.trim().length > 200) {
+      newErrors.titulo = "El título no puede superar 200 caracteres";
+    }
     if (!formData.descripcion.trim()) newErrors.descripcion = "La descripción es requerida";
     if (typeof formData.points !== 'number' || Number.isNaN(formData.points) || formData.points < 0) newErrors.points = 'Puntos inválidos';
 
@@ -102,7 +106,9 @@ export default function LessonFormModal({ isOpen, onClose, onSave, lesson }: Les
               value={formData.titulo}
               onChange={(e) => setFormData(prev => ({ ...prev, titulo: e.target.value }))}
               className={errors.titulo ? "border-destructive" : ""}
+              maxLength={200}
             />
+            <p className="text-xs text-muted-foreground text-right">{formData.titulo.length}/200</p>
             {errors.titulo && <p className="text-sm text-destructive">{errors.titulo}</p>}
           </div>
 

@@ -1,5 +1,22 @@
 import { useState, useEffect } from "react";
-import { Plus, Edit, Eye, Trash2 } from "lucide-react";
+import { Plus, Edit, Eye, Trash2, ArrowUpDown, GripVertical } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,6 +49,42 @@ const levelColors = {
   C2: "bg-purple-100 text-purple-800"
 };
 
+const SortableLessonRow = ({ lesson, onView, onEdit, onDelete }: {
+  lesson: Lesson;
+  onView: (l: Lesson) => void;
+  onEdit: (l: Lesson) => void;
+  onDelete: (id: string) => void;
+}) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: lesson.id });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
+  return (
+    <TableRow ref={setNodeRef} style={style}>
+      <TableCell>
+        <button {...attributes} {...listeners} className="cursor-grab touch-none text-muted-foreground hover:text-foreground focus:outline-none">
+          <GripVertical className="w-4 h-4" />
+        </button>
+      </TableCell>
+      <TableCell className="font-medium max-w-xs truncate">{lesson.titulo}</TableCell>
+      <TableCell className="max-w-xs truncate">{lesson.descripcion}</TableCell>
+      <TableCell>
+        <Badge className={levelColors[lesson.nivelAsociado as keyof typeof levelColors]}>{lesson.nivelAsociado}</Badge>
+      </TableCell>
+      <TableCell>
+        <Badge variant={lesson.obligatoria ? "default" : "secondary"}>{lesson.obligatoria ? "Sí" : "No"}</Badge>
+      </TableCell>
+      <TableCell>{lesson.notas.length}</TableCell>
+      <TableCell>{lesson.ejercicios.length}</TableCell>
+      <TableCell className="text-right">
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={() => onView(lesson)}><Eye className="w-4 h-4" /></Button>
+          <Button variant="outline" size="sm" onClick={() => onEdit(lesson)}><Edit className="w-4 h-4" /></Button>
+          <Button variant="outline" size="sm" onClick={() => onDelete(lesson.id)} className="text-destructive hover:text-destructive"><Trash2 className="w-4 h-4" /></Button>
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+};
+
 export default function CourseManagement() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -43,7 +96,58 @@ export default function CourseManagement() {
     isOpen: boolean;
     onConfirm: () => void;
   }>({ isOpen: false, onConfirm: () => { } });
+  const [reorderMode, setReorderMode] = useState(false);
+  const [reorderedLessons, setReorderedLessons] = useState<Lesson[]>([]);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
   const { toast } = useToast();
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleEnterReorderMode = () => {
+    setReorderedLessons([...lessons]);
+    setReorderMode(true);
+  };
+
+  const handleCancelReorder = () => {
+    setReorderMode(false);
+    setReorderedLessons([]);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setReorderedLessons((prev) => {
+        const oldIndex = prev.findIndex(l => l.id === active.id);
+        const newIndex = prev.findIndex(l => l.id === over.id);
+        return arrayMove(prev, oldIndex, newIndex);
+      });
+    }
+  };
+
+  const handleSaveOrder = async () => {
+    const previousOrder = [...lessons];
+    setIsSavingOrder(true);
+    try {
+      await Promise.all(
+        reorderedLessons.map((l, i) =>
+          supabase.from('lessons').update({ sort_order: i + 1 }).eq('id', l.id)
+        )
+      );
+      setLessons(reorderedLessons);
+      setReorderMode(false);
+      setReorderedLessons([]);
+      toast({ title: 'Orden guardado', description: 'El orden de las lecciones fue actualizado.' });
+    } catch (err) {
+      console.error(err);
+      setReorderedLessons(previousOrder);
+      toast({ title: 'Error al guardar', description: 'No se pudo guardar el nuevo orden. Se revirtió al orden anterior.' });
+    } finally {
+      setIsSavingOrder(false);
+    }
+  };
 
   useEffect(() => {
     const fetchLessons = async () => {
@@ -59,6 +163,7 @@ export default function CourseManagement() {
           nivelAsociado: l.level,
           obligatoria: l.mandatory,
           fechaCreacion: l.created_at,
+          sort_order: (l as any).sort_order ?? 0,
           notas: [],
           ejercicios: []
         }));
@@ -184,12 +289,14 @@ export default function CourseManagement() {
         setLessons(prev => prev.map(l => l.id === updatedLesson.id ? updatedLesson : l));
         toast({ title: 'Lección actualizada', description: 'Los datos de la lección han sido actualizados correctamente.' });
       } else {
+        const maxSortOrder = lessons.reduce((max, l) => Math.max(max, (l as any).sort_order ?? 0), 0);
         const { data, error } = await supabase.from('lessons').insert([{
           title: lessonData.titulo,
           description: lessonData.descripcion,
           level: lessonData.nivelAsociado,
           mandatory: lessonData.obligatoria,
-          points: (lessonData as any).points ?? 0
+          points: (lessonData as any).points ?? 0,
+          sort_order: maxSortOrder + 1
         }]).select().single();
         if (error) throw error;
         setLessons(prev => [{
@@ -237,10 +344,29 @@ export default function CourseManagement() {
           <h1 className="text-3xl font-bold text-foreground">Gestión de Cursos</h1>
           <p className="text-muted-foreground">Administra las lecciones y contenido educativo</p>
         </div>
-        <Button onClick={handleCreateLesson} className="bg-primary hover:bg-primary-hover">
-          <Plus className="w-4 h-4 mr-2" />
-          Nueva Lección
-        </Button>
+        <div className="flex gap-2">
+          {!reorderMode ? (
+            <>
+              {lessons.length > 1 && (
+                <Button variant="outline" onClick={handleEnterReorderMode}>
+                  <ArrowUpDown className="w-4 h-4 mr-2" />
+                  Reordenar
+                </Button>
+              )}
+              <Button onClick={handleCreateLesson} className="bg-primary hover:bg-primary-hover">
+                <Plus className="w-4 h-4 mr-2" />
+                Nueva Lección
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" onClick={handleCancelReorder} disabled={isSavingOrder}>Cancelar</Button>
+              <Button onClick={handleSaveOrder} disabled={isSavingOrder}>
+                {isSavingOrder ? 'Guardando...' : 'Guardar orden'}
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       <Card className="shadow-card">
@@ -278,68 +404,80 @@ export default function CourseManagement() {
 
       <Card className="shadow-card">
         <CardHeader>
-          <CardTitle>Lecciones ({filteredLessons.length})</CardTitle>
+          <CardTitle>
+            Lecciones ({reorderMode ? reorderedLessons.length : filteredLessons.length})
+            {reorderMode && <span className="ml-2 text-sm font-normal text-muted-foreground">— Arrastra para reordenar</span>}
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Título</TableHead>
-                <TableHead>Descripción</TableHead>
-                <TableHead>Nivel</TableHead>
-                <TableHead>Obligatoria</TableHead>
-                <TableHead>Notas</TableHead>
-                <TableHead>Ejercicios</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredLessons.map((lesson) => (
-                <TableRow key={lesson.id}>
-                  <TableCell className="font-medium">{lesson.titulo}</TableCell>
-                  <TableCell className="max-w-xs truncate">{lesson.descripcion}</TableCell>
-                  <TableCell>
-                    <Badge className={levelColors[lesson.nivelAsociado as keyof typeof levelColors]}>
-                      {lesson.nivelAsociado}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={lesson.obligatoria ? "default" : "secondary"}>
-                      {lesson.obligatoria ? "Sí" : "No"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{lesson.notas.length}</TableCell>
-                  <TableCell>{lesson.ejercicios.length}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleViewLesson(lesson)}
-                      >
-                        <Eye className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleEditLesson(lesson)}
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDeleteLesson(lesson.id)}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
+          {reorderMode ? (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={reorderedLessons.map(l => l.id)} strategy={verticalListSortingStrategy}>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-8"></TableHead>
+                      <TableHead>Título</TableHead>
+                      <TableHead>Descripción</TableHead>
+                      <TableHead>Nivel</TableHead>
+                      <TableHead>Obligatoria</TableHead>
+                      <TableHead>Notas</TableHead>
+                      <TableHead>Ejercicios</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {reorderedLessons.map((lesson) => (
+                      <SortableLessonRow
+                        key={lesson.id}
+                        lesson={lesson}
+                        onView={handleViewLesson}
+                        onEdit={handleEditLesson}
+                        onDelete={handleDeleteLesson}
+                      />
+                    ))}
+                  </TableBody>
+                </Table>
+              </SortableContext>
+            </DndContext>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Título</TableHead>
+                  <TableHead>Descripción</TableHead>
+                  <TableHead>Nivel</TableHead>
+                  <TableHead>Obligatoria</TableHead>
+                  <TableHead>Notas</TableHead>
+                  <TableHead>Ejercicios</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredLessons.map((lesson) => (
+                  <TableRow key={lesson.id}>
+                    <TableCell className="font-medium max-w-xs truncate">{lesson.titulo}</TableCell>
+                    <TableCell className="max-w-xs truncate">{lesson.descripcion}</TableCell>
+                    <TableCell>
+                      <Badge className={levelColors[lesson.nivelAsociado as keyof typeof levelColors]}>{lesson.nivelAsociado}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={lesson.obligatoria ? "default" : "secondary"}>{lesson.obligatoria ? "Sí" : "No"}</Badge>
+                    </TableCell>
+                    <TableCell>{lesson.notas.length}</TableCell>
+                    <TableCell>{lesson.ejercicios.length}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => handleViewLesson(lesson)}><Eye className="w-4 h-4" /></Button>
+                        <Button variant="outline" size="sm" onClick={() => handleEditLesson(lesson)}><Edit className="w-4 h-4" /></Button>
+                        <Button variant="outline" size="sm" onClick={() => handleDeleteLesson(lesson.id)} className="text-destructive hover:text-destructive"><Trash2 className="w-4 h-4" /></Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 

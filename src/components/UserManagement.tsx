@@ -424,6 +424,12 @@ export default function UserManagement() {
       return;
     }
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(inviteEmail)) {
+      toast({ title: 'Email inválido', description: 'El formato del email no es válido.', variant: 'destructive' });
+      return;
+    }
+
     try {
       // Check if email already exists in profiles (users)
       const { data: existingProfiles, error: errProfiles } = await supabase
@@ -455,13 +461,17 @@ export default function UserManagement() {
         return;
       }
 
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 30);
+
       const insertObj = {
         name: inviteName,
         email: inviteEmail,
         code: inviteCode,
-        // invitations should also store tipo normalized
         tipo: 'alumno',
         status: 'invitado',
+        email_status: 'pending',
+        expires_at: expiresAt.toISOString(),
       };
 
       // insert into `invitations` table (create this table in Supabase)
@@ -471,12 +481,9 @@ export default function UserManagement() {
         return;
       }
 
-      // Send invitation using the external API2Mail endpoint
-      // NOTE: token is hardcoded here per your request — consider using env vars or secrets for production
-      const SEND_API2MAIL_URL = "https://api2mail.vercel.app/send-email";
-      const API2MAIL_BEARER = "8ebe9d396025bd4cb1ac11abcf2122d15920bfe45ff261442868236919ea5e40";
+      const RESEND_API_KEY = import.meta.env.VITE_RESEND_API_KEY as string;
+      const FROM_EMAIL = import.meta.env.VITE_FROM_EMAIL as string;
 
-      const inviteLink = `${window.location.origin}/reset-password?code=${encodeURIComponent(insertObj.code)}`;
       const iosLink = "https://apps.apple.com/app/idYOUR_IOS_APP_ID";
       const androidLink = "https://play.google.com/store/apps/details?id=YOUR_ANDROID_PACKAGE";
 
@@ -498,36 +505,37 @@ export default function UserManagement() {
           <p style="margin-top:18px">Si tienes problemas, visita <a href="${window.location.origin}" style="color:#015ea8;text-decoration:underline;">nuestra web</a> o contacta con soporte.</p>
         </div>`;
 
-      const textBody = `Hola ${inviteName},\n\nEste es tu codigo para registrarte en TrueEnglish: ${insertObj.code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nAl registrar, introduce el codigo para completar tu registro.`;
+      const text = `Hola ${inviteName},\n\nEste es tu codigo para registrarte en TrueEnglish: ${insertObj.code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nAl registrar, introduce el codigo para completar tu registro.`;
 
       const payload = {
+        from: FROM_EMAIL,
         to: inviteEmail,
         subject: `Invitación a TrueEnglish Academy - ${insertObj.code}`,
-        htmlBody: html,
-        textBody,
-        fromName: "TrueEnglish Soporte",
-        fromHeader: 'TrueEnglish Soporte '
+        html,
+        text,
       };
 
-      const resp = await fetch(SEND_API2MAIL_URL, {
+      const resp = await fetch("https://api.resend.com/emails", {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API2MAIL_BEARER}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
         body: JSON.stringify(payload),
       });
 
       const data = await resp.json().catch(() => null);
       if (!resp.ok) {
-        console.error('api2mail error', data);
-        toast({ title: 'Error enviando email', description: data?.error || 'Error al enviar email', variant: 'destructive' });
-      } else {
-        toast({ title: 'Email enviado', description: 'La invitación fue enviada por correo.' });
+        console.error('resend error', data);
+        await supabase.from('invitations').update({ email_status: 'failed' }).ilike('email', inviteEmail);
+        toast({ title: 'Error enviando email', description: data?.error || 'Error al enviar email. La invitación fue guardada — usa "Reenviar" para intentar de nuevo.', variant: 'destructive' });
+        await fetchInvitedStudents();
+        return;
       }
 
+      await supabase.from('invitations').update({ email_status: 'sent', email_sent_at: new Date().toISOString() }).ilike('email', inviteEmail);
+      toast({ title: 'Invitación enviada', description: 'La invitación fue guardada y el email fue enviado correctamente.' });
       setIsInviteModalOpen(false);
       setInviteEmail('');
       setInviteName('');
       setInviteCode('');
-      toast({ title: 'Invitación enviada', description: 'La invitación ha sido guardada.' });
       await fetchInvitedStudents();
     } catch (err) {
       console.error('Failed to send invitation', err);
@@ -558,10 +566,9 @@ export default function UserManagement() {
         return;
       }
 
-      const SEND_API2MAIL_URL = "https://api2mail.vercel.app/send-email";
-      const API2MAIL_BEARER = "8ebe9d396025bd4cb1ac11abcf2122d15920bfe45ff261442868236919ea5e40";
+      const RESEND_API_KEY = import.meta.env.VITE_RESEND_API_KEY as string;
+      const FROM_EMAIL = import.meta.env.VITE_FROM_EMAIL as string;
 
-      const inviteLink = `${window.location.origin}/reset-password?code=${encodeURIComponent(code)}`;
       const iosLink = "https://apps.apple.com/app/idYOUR_IOS_APP_ID";
       const androidLink = "https://play.google.com/store/apps/details?id=YOUR_ANDROID_PACKAGE";
 
@@ -583,27 +590,29 @@ export default function UserManagement() {
           <p style="margin-top:18px">Si tienes problemas, visita <a href="${window.location.origin}" style="color:#015ea8;text-decoration:underline;">nuestra web</a> o contacta con soporte.</p>
         </div>`;
 
-      const textBody = `Hola ${inviteName || inviteEmail},\n\nEste es tu codigo para registrarte en TrueEnglish: ${code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nAl registrar, introduce el codigo para completar tu registro.`;
+      const text = `Hola ${inviteName || inviteEmail},\n\nEste es tu codigo para registrarte en TrueEnglish: ${code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nAl registrar, introduce el codigo para completar tu registro.`;
 
       const payload = {
+        from: FROM_EMAIL,
         to: inviteEmail,
         subject: `Invitación a TrueEnglish Academy - ${code}`,
-        htmlBody: html,
-        textBody,
-        fromName: "TrueEnglish Soporte",
+        html,
+        text,
       };
 
-      const resp = await fetch(SEND_API2MAIL_URL, {
+      const resp = await fetch("https://api.resend.com/emails", {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API2MAIL_BEARER}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
         body: JSON.stringify(payload),
       });
 
       const dataResp = await resp.json().catch(() => null);
       if (!resp.ok) {
-        console.error('api2mail resend error', dataResp);
+        console.error('resend resend error', dataResp);
+        await supabase.from('invitations').update({ email_status: 'failed' }).eq('id', studentId);
         toast({ title: 'Error reenviando', description: dataResp?.error || 'No se pudo reenviar el email', variant: 'destructive' });
       } else {
+        await supabase.from('invitations').update({ email_status: 'sent', email_sent_at: new Date().toISOString() }).eq('id', studentId);
         toast({ title: 'Email reenviado', description: 'La invitación fue reenviada correctamente.' });
       }
     } catch (err) {
