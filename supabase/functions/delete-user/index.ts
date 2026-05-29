@@ -99,8 +99,12 @@ Deno.serve(async (req: Request) => {
     }
     const callerId = userData.user.id;
     console.info('caller id from token', callerId);
-    // Note: no role check for the caller. Any authenticated caller may request deletions,
-    // but the function will refuse to delete target users whose `tipo` === 'admin'.
+
+    // Verificar que el llamador sea admin (rol='admin').
+    const { data: callerProfile } = await admin.from('profiles').select('rol').eq('id', callerId).single();
+    if (!callerProfile || String(callerProfile.rol).toLowerCase() !== 'admin') {
+      return new Response(JSON.stringify({ error: 'FORBIDDEN', details: 'Solo administradores pueden eliminar usuarios' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+    }
 
     // Deletion flow with rollback: delete profile row first, then delete auth user.
     console.info('🧭 starting deletion flow', { userId });
@@ -114,8 +118,8 @@ Deno.serve(async (req: Request) => {
       } else {
         existingProfile = profileRow;
         console.info('📦 fetched existing profile for backup', { id: existingProfile?.id, tipo: existingProfile?.tipo });
-        // Prevent deleting users that themselves are admins
-        if (existingProfile?.tipo === 'admin') {
+        // Prevent deleting users that themselves are admins (rol='admin')
+        if (String(existingProfile?.rol ?? '').toLowerCase() === 'admin') {
           console.warn('⛔ deletion blocked: target user is admin', { userId });
           return new Response(JSON.stringify({ error: 'CANNOT_DELETE_ADMIN', details: 'No se puede eliminar usuarios con rol admin' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
         }

@@ -5,8 +5,8 @@ import { createClient } from "jsr:@supabase/supabase-js";
 
 // IMPORTANT: prefer using secrets via supabase CLI: supabase secrets set SUPABASE_SERVICE_ROLE="..."
 // For quick testing you can hardcode, but don't commit the service key.
-const SUPABASE_URL = "REPLACE_WITH_SUPABASE_URL";
-const SERVICE_ROLE = "REPLACE_WITH_SERVICE_ROLE";
+const SUPABASE_URL = "https://vymijjuxxrpxtrxjnoky.supabase.co";
+const SERVICE_ROLE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ5bWlqanV4eHJweHRyeGpub2t5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzAyNjQ0NiwiZXhwIjoyMDc4NjAyNDQ2fQ.mltiEWa0iO14SmfipjHNyYnTOFf532f68zdgdEu1dxA";
 
 const SHOW_KEYS_IN_ERRORS = false;
 function maskKey(k: string) { if (!k) return ''; return k.length > 8 ? k.slice(0, 4) + '...' + k.slice(-4) : '********'; }
@@ -24,13 +24,22 @@ Deno.serve(async (req: Request) => {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
   try {
+    // Verificar que el llamador sea admin (rol='admin').
+    const authHeader = req.headers.get('authorization');
+    if (!authHeader) return new Response(JSON.stringify({ error: 'UNAUTHENTICATED' }), { status: 401, headers: { 'Content-Type': 'application/json', ...cors } });
+    const callerToken = authHeader.replace('Bearer ', '');
+    const { data: callerData, error: callerErr } = await admin.auth.getUser(callerToken);
+    if (callerErr || !callerData?.user) return new Response(JSON.stringify({ error: 'INVALID_TOKEN' }), { status: 401, headers: { 'Content-Type': 'application/json', ...cors } });
+    const { data: callerProfile } = await admin.from('profiles').select('rol').eq('id', callerData.user.id).single();
+    if (!callerProfile || String(callerProfile.rol).toLowerCase() !== 'admin') return new Response(JSON.stringify({ error: 'FORBIDDEN', details: 'Solo administradores' }), { status: 403, headers: { 'Content-Type': 'application/json', ...cors } });
+
     const text = await req.text();
     if (!text) return new Response(JSON.stringify({ error: 'MISSING_BODY' }), { status: 400, headers: { 'Content-Type': 'application/json', ...cors } });
     let body: any;
     try { body = JSON.parse(text); } catch (e) { return new Response(JSON.stringify({ error: 'INVALID_JSON', details: String(e) }), { status: 400, headers: { 'Content-Type': 'application/json', ...cors } }); }
 
     const {
-      email, password, name, last_name, phone, birth_date, nivel_actual, status, tipo, code, id: forcedId
+      email, password, name, last_name, phone, birth_date, nivel_actual, status, tipo, rol, code, id: forcedId
     } = body;
 
     if (!email || !password) return new Response(JSON.stringify({ error: 'MISSING_FIELDS', details: 'email and password required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...cors } });
@@ -57,7 +66,8 @@ Deno.serve(async (req: Request) => {
       birth_date: birth_date ?? null,
       nivel_actual: nivel_actual ?? null,
       status: status ?? 'activo',
-      tipo: (tipo ?? 'alumno'),
+      tipo: (tipo ?? 'Alumno'),
+      rol: (rol ?? 'usuario'),
       code: code ?? null,
     };
 

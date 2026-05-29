@@ -20,7 +20,8 @@ export default function CreateChallengeModal({ isOpen, onClose, onSave, lessons,
     titulo: "",
     nivel: "A1",
     lessonId: "",
-    activo: true
+    activo: true,
+    points: 0
   });
   const [isSaving, setIsSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});

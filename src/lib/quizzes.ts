@@ -50,7 +50,7 @@ export async function listLessons() {
 }
 
 export async function listQuestions(kind?: string, filters?: Record<string, any>) {
-  let builder = supabase.from('questions').select('id, title, kind, lesson_id, challenge_id, level, content, image_url, audio_url, correct_option_id, include_in_test, active, question_options!question_options_question_id_fkey(id, text, "order")');
+  let builder = supabase.from('questions').select('id, title, kind, lesson_id, challenge_id, level, content, image_url, audio_url, correct_option_id, include_in_test, active, points, question_options!question_options_question_id_fkey(id, text, "order")');
   if (kind) builder = builder.eq('kind', kind);
   if (filters) {
     Object.entries(filters).forEach(([k, v]) => {
@@ -128,6 +128,7 @@ export async function createQuestionWithOptions(payload: QuestionCreatePayload) 
         active: payload.active ?? true,
         include_in_test: payload.include_in_test ?? false,
         correct_option_id: payload.correct_option_id ?? null,
+        points: payload.points ?? 0,
       },
     ])
     .select()
@@ -192,6 +193,7 @@ export async function updateQuestionWithOptions(questionId: string, payload: Par
 
   if (payload.active !== undefined) patch.active = payload.active;
   if (payload.include_in_test !== undefined) patch.include_in_test = payload.include_in_test;
+  if (payload.points !== undefined) patch.points = payload.points;
 
   if (Object.keys(patch).length > 0) {
     const { data: qData, error: qErr } = await supabase.from('questions').update(patch).eq('id', questionId).select().single();
@@ -253,13 +255,9 @@ export async function uploadMedia(file: File, destPath: string, bucket = 'public
   const { data, error } = await supabase.storage.from(bucket).upload(destPath, file, { cacheControl: '3600', upsert: false });
   if (error) throw error;
 
-  // Try to get public URL
-  const { publicURL, error: urlErr } = supabase.storage.from(bucket).getPublicUrl(data.path);
-  if (urlErr) {
-    // Not fatal: return storage path so caller can handle
-    return { path: data.path };
-  }
-  return { path: data.path, publicURL };
+  // Get public URL (Supabase JS v2 returns { data: { publicUrl } }, sin error)
+  const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(data.path);
+  return { path: data.path, publicURL: urlData?.publicUrl };
 }
 
 export default {

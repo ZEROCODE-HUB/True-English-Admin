@@ -36,7 +36,7 @@ export default function AdminLayout() {
 
   const { signOut } = useAuth();
 
-  const { user } = useAuth();
+  const { user, isAdmin, loading } = useAuth();
   const [profile, setProfile] = useState<{ name?: string | null; last_name?: string | null; email?: string | null; avatar_url?: string | null } | null>(null);
 
   useEffect(() => {
@@ -63,6 +63,19 @@ export default function AdminLayout() {
     await signOut();
     navigate("/login");
   };
+
+  // Gating: si hay sesión pero la cuenta no es admin, no mostrar el panel.
+  if (!loading && user && !isAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 bg-background">
+        <div className="max-w-md text-center space-y-4">
+          <h1 className="text-2xl font-bold">Acceso restringido</h1>
+          <p className="text-muted-foreground">Esta cuenta no tiene permisos de administrador.</p>
+          <Button onClick={handleLogout}>Cerrar sesión</Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <SidebarProvider>

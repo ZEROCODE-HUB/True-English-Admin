@@ -50,10 +50,10 @@ export default function UserFormModal({
         apellido: user.apellido,
         email: user.email,
         celular: user.celular,
-        fechaNacimiento: user.fechaNacimiento,
+        fechaNacimiento: user.fechaNacimiento as any,
         intereses: user.intereses,
         nivelActual: user.nivelActual,
-        estado: user.estado,
+        estado: user.estado as "activo" | "inactivo",
         tipoUsuario: normalizeTipo(user.tipoUsuario),
         password: ""
       });
@@ -147,7 +147,7 @@ export default function UserFormModal({
         estado: String(formData.estado),
         tipoUsuario: normalizeTipo(formData.tipoUsuario),
         password: formData.password
-      } as Omit<User, 'id' | 'fechaRegistro'> & { password?: string };
+      } as unknown as Omit<User, 'id' | 'fechaRegistro'> & { password?: string };
 
       await onSave(out);
       onClose();

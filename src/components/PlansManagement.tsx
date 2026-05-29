@@ -175,7 +175,10 @@ export default function PlansManagement() {
               <Select value={selectedDuration ?? ''} onValueChange={(v) => {
                 setSelectedDuration(v || null);
                 const opt = DURATION_OPTIONS.find(d => d.id === v);
-                if (opt && editing) setEditing(prev => prev ? { ...prev, id: opt.id, duration_label: opt.duration_label, label: opt.label, price_mxn: opt.price_mxn, price_per_month_mxn: opt.price_per_month_mxn } : prev);
+                // Mantener el id estable al editar un plan existente (cambiar el id
+                // crearía un plan nuevo y dejaría huérfanos los plan_benefits). Solo
+                // se toma el id de la duración cuando es un plan nuevo (sin id).
+                if (opt && editing) setEditing(prev => prev ? { ...prev, id: prev.id ? prev.id : opt.id, duration_label: opt.duration_label, label: opt.label, price_mxn: opt.price_mxn, price_per_month_mxn: opt.price_per_month_mxn } : prev);
               }}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecciona duración" />
