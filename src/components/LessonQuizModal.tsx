@@ -34,7 +34,8 @@ export default function LessonQuizModal({
     pregunta: "",
     opciones: ["", ""],
     respuestaCorrecta: 1,
-    activa: true
+    activa: true,
+    points: 0
 
   });
 
@@ -49,7 +50,8 @@ export default function LessonQuizModal({
         pregunta: question.pregunta,
         opciones: [...question.opciones],
         respuestaCorrecta: question.respuestaCorrecta,
-        activa: question.activa
+        activa: question.activa,
+        points: (question as any).points ?? 0
 
       });
     } else {
@@ -61,7 +63,8 @@ export default function LessonQuizModal({
         pregunta: "",
         opciones: ["", ""],
         respuestaCorrecta: 1,
-        activa: true
+        activa: true,
+        points: 0
       }));
     }
     setErrors({});
@@ -175,6 +178,20 @@ export default function LessonQuizModal({
               </div>
             </RadioGroup>
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="puntos">Puntos</Label>
+          <Input
+            id="puntos"
+            type="number"
+            min={0}
+            value={String(formData.points ?? 0)}
+            onChange={e => setFormData(prev => ({ ...prev, points: Number(e.target.value) || 0 }))}
+            placeholder="0"
+            className="max-w-[160px]"
+          />
+          <p className="text-xs text-muted-foreground">Puntos de esta pregunta. El total del quiz es la suma de los puntos de todas sus preguntas.</p>
         </div>
 
         <div className="space-y-2">

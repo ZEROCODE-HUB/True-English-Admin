@@ -202,7 +202,7 @@ const ConversationManagement = () => {
 
     // map points and sort_order
     mapped.forEach((m, idx) => {
-      const raw = (data || [])[idx] || {};
+      const raw = ((data || [])[idx] || {}) as any;
       (m as any).points = (raw.points ?? raw.puntos ?? 0) as number;
       (m as any).sort_order = (raw.sort_order ?? 0) as number;
     });
@@ -333,7 +333,7 @@ const ConversationManagement = () => {
       const puntuacionFinal = latestScore?.total ?? Math.round(((Number(puntuaciones.gramatica) + Number(puntuaciones.fluidez) + Number(puntuaciones.ortografia)) / 3) || 0);
 
       const transcript = (convMessages || []).map((m: any) => ({
-        role: m.sender_type === 'ai' ? 'assistant' : 'user',
+        role: (m.sender_type === 'ai' ? 'assistant' : 'user') as 'user' | 'assistant',
         content: m.content,
         timestamp: new Date(m.created_at)
       }));
@@ -390,7 +390,7 @@ const ConversationManagement = () => {
         }
 
         return {
-          role: m.sender_type === 'ai' ? 'assistant' : 'user',
+          role: (m.sender_type === 'ai' ? 'assistant' : 'user') as 'user' | 'assistant',
           content: text ?? '',
           timestamp: m.created_at
         };
@@ -466,7 +466,7 @@ const ConversationManagement = () => {
           // replace vocab: delete existing and insert new
           await supabase.from('ai_topic_vocab').delete().eq('topic_id', editingTopic.id);
           if (editingTopic.vocabulario.length > 0) {
-            const toInsert = editingTopic.vocabulario.map(v => ({ topic_id: editingTopic.id, word: v.word, definition: v.definition, part_of_speech: v.partOfSpeech }));
+            const toInsert = editingTopic.vocabulario.map((v, i) => ({ topic_id: editingTopic.id, word: v.word, definition: v.definition, part_of_speech: v.partOfSpeech, order: i }));
             const { error: err2 } = await supabase.from('ai_topic_vocab').insert(toInsert);
             if (err2) throw err2;
           }
@@ -479,7 +479,7 @@ const ConversationManagement = () => {
           if (error) throw error;
 
           if (editingTopic.vocabulario.length > 0) {
-            const toInsert = editingTopic.vocabulario.map(v => ({ topic_id: created.id, word: v.word, definition: v.definition, part_of_speech: v.partOfSpeech }));
+            const toInsert = editingTopic.vocabulario.map((v, i) => ({ topic_id: created.id, word: v.word, definition: v.definition, part_of_speech: v.partOfSpeech, order: i }));
             const { error: err2 } = await supabase.from('ai_topic_vocab').insert(toInsert);
             if (err2) throw err2;
           }
@@ -643,8 +643,11 @@ const ConversationManagement = () => {
                         <div className="text-2xl">{topic.emoji || '💬'}</div>
                         <div>
                           <CardTitle className="text-lg">{topic.titulo}</CardTitle>
-                          <div className="mt-1">
+                          <div className="mt-1 flex items-center gap-1">
                             <Badge variant="secondary">{topic.nivel}</Badge>
+                            {((topic as any).points ?? 0) > 0 && (
+                              <Badge variant="outline">{(topic as any).points} pts</Badge>
+                            )}
                           </div>
                         </div>
                       </div>

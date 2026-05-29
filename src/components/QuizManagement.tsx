@@ -141,7 +141,8 @@ export default function QuizManagement() {
         pregunta: q.title ?? q.title,
         opciones: (q.question_options || []).map((o: any) => o.text),
         respuestaCorrecta: q.correct_option_id ? ((q.question_options || []).findIndex((o: any) => o.id === q.correct_option_id) + 1) : 1,
-        activa: q.active ?? true
+        activa: q.active ?? true,
+        points: q.points ?? 0
       }));
       setLessonQuestions(mapped);
     } catch (err) {
@@ -154,6 +155,7 @@ export default function QuizManagement() {
       const data = await quizzes.listChallenges();
       const mapped: Challenge[] = (data || []).map((c: any) => ({
         id: c.id,
+        titulo: c.title ?? c.titulo ?? '',
         nivel: c.level ?? c.nivel ?? 'A1',
         lessonId: c.lesson_id ?? c.lessonId ?? '',
         lessonTitle: c.lesson_id ? '' : (c.lesson_title ?? ''),
@@ -527,7 +529,8 @@ export default function QuizManagement() {
           pregunta: q.title ?? q.title,
           opciones: (q.question_options || []).map((o: any) => o.text),
           respuestaCorrecta: 1,
-          activa: q.active ?? true
+          activa: q.active ?? true,
+          points: q.points ?? 0
         }));
         setLessonQuestions(mapped);
       } catch (err) {
@@ -1403,6 +1406,7 @@ export default function QuizManagement() {
           lesson_id: questionData.lessonId,
           content: {},
           active: questionData.activa,
+          points: (questionData as any).points ?? 0,
           options: questionData.opciones.map((o, i) => ({ text: o, order: i }))
           ,
           correct_option_index: questionData.respuestaCorrecta

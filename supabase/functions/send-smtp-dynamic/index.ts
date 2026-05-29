@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { SmtpClient } from "https://deno.land/x/smtp@0.7.0/mod.ts";
+import { createClient } from "jsr:@supabase/supabase-js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -18,6 +19,21 @@ serve(async (req) => {
         status: 405,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // Verificar que el llamador sea admin (rol='admin').
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "UNAUTHENTICATED" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    const sb = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_ANON_KEY") ?? "", { global: { headers: { Authorization: authHeader } }, auth: { persistSession: false } });
+    const { data: caller } = await sb.auth.getUser();
+    if (!caller?.user) {
+      return new Response(JSON.stringify({ error: "INVALID_TOKEN" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    const { data: callerProfile } = await sb.from("profiles").select("rol").eq("id", caller.user.id).single();
+    if (!callerProfile || String(callerProfile.rol).toLowerCase() !== "admin") {
+      return new Response(JSON.stringify({ error: "FORBIDDEN", details: "Solo administradores" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const body = await req.json().catch(() => null);

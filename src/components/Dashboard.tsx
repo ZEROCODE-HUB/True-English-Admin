@@ -17,7 +17,6 @@ const initialKpis = [
 ];
 
 // Keep the previous hardcoded KPI label for session time; lessons completed will be fetched
-const staticKpiSession = { title: "Tiempo Promedio de Sesión", value: "24 min", icon: Clock, color: "text-warning" };
 
 interface Student {
   id: string;
@@ -196,7 +195,7 @@ export default function Dashboard() {
           nivelActual: p['nivel_actual'] ? String(p['nivel_actual']) : null,
           empresa: p['company'] ? String(p['company']) : null,
           ultimaLeccion: null,
-          puntosAcumulados: 0, // hardcoded for now
+          puntosAcumulados: Number(p['puntos'] ?? 0),
           tiempoDedicado: '00:00:00',
           correo: String(p['email'] ?? ''),
           testsRealizados: [],
@@ -241,7 +240,7 @@ export default function Dashboard() {
             if (totalsErr) {
               console.error('failed to fetch totals from view user_total_foreground_extended', totalsErr);
             } else if (totalsData && Array.isArray(totalsData)) {
-              totalsMap = (totalsData as Record<string, unknown>[]).reduce((acc, t) => {
+              totalsMap = (totalsData as Record<string, unknown>[]).reduce<Record<string, number>>((acc, t) => {
                 const uid = String(t['user_id'] ?? '');
 
                 const total = Number(t['total_ms'] ?? 0);
@@ -282,7 +281,7 @@ export default function Dashboard() {
             if (lessonsErr) {
               console.error('failed to fetch lessons', lessonsErr);
             } else if (lessonsData) {
-              lessonTitles = (lessonsData as Record<string, unknown>[]).reduce((acc, l) => {
+              lessonTitles = (lessonsData as Record<string, unknown>[]).reduce<Record<string, string>>((acc, l) => {
                 const id = String(l['id'] ?? '');
                 const title = String(l['title'] ?? id);
                 acc[id] = title;
@@ -333,7 +332,7 @@ export default function Dashboard() {
     const headers = ["Nombre", "Nivel Actual", "Empresa", "Última Lección", "Puntos Acumulados", "Tiempo Dedicado"];
     const csvContent = [
       headers.join(","),
-      ...filteredStudents.map(s =>
+      ...students.map(s =>
         `"${s.nombre}","${s.nivelActual}","${s.empresa}","${s.ultimaLeccion}",${s.puntosAcumulados},"${s.tiempoDedicado}"`
       )
     ].join("\n");
@@ -409,16 +408,6 @@ export default function Dashboard() {
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold text-foreground">{completedToday === null ? '—' : String(completedToday)}</div>
-        </CardContent>
-      </Card>
-
-      <Card key={`static-session`} className="shadow-card">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">{staticKpiSession.title}</CardTitle>
-          <staticKpiSession.icon className={`h-5 w-5 ${staticKpiSession.color}`} />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold text-foreground">{staticKpiSession.value}</div>
         </CardContent>
       </Card>
     </div>

@@ -84,7 +84,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
     audios: [] as string[],
     imagenFile: null as File | null,
     audioFile: null as File | null,
-    activo: true
+    activo: true,
+    points: 0
   });
 
   const [exerciseForm, setExerciseForm] = useState({
@@ -98,7 +99,8 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
     opciones: [] as ExerciseOption[],
     respuestaCorrecta: "",
     obligatorio: false,
-    activo: true
+    activo: true,
+    points: 0
   });
 
   // previews for selected or existing media
@@ -179,8 +181,7 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
     const filePath = `${path}/${Date.now()}_${file.name}`;
     const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(filePath, file, { cacheControl: '3600', upsert: false });
     if (upErr) throw upErr;
-    const { data: urlData, error: urlErr } = await supabase.storage.from(STORAGE_BUCKET).getPublicUrl(filePath);
-    if (urlErr) throw urlErr;
+    const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(filePath);
     return urlData.publicUrl;
   };
 

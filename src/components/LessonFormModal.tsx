@@ -33,7 +33,8 @@ export default function LessonFormModal({ isOpen, onClose, onSave, lesson }: Les
     titulo: "",
     descripcion: "",
     nivelAsociado: "A1",
-    obligatoria: false
+    obligatoria: false,
+    points: 0
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
