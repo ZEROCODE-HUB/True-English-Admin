@@ -846,6 +846,18 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
               <Label>Nota Activa</Label>
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="note-points">Puntos Ganados</Label>
+              <Input
+                id="note-points"
+                type="number"
+                min={0}
+                step={1}
+                value={String((noteForm as any).points ?? 0)}
+                onChange={(e) => setNoteForm(prev => ({ ...prev, points: Math.max(0, parseInt(e.target.value || '0') || 0) }))}
+              />
+            </div>
+
             <div className="flex justify-end gap-3">
               <Button variant="outline" onClick={() => setIsNoteModalOpen(false)} disabled={isNoteSaving}>
                 Cancelar

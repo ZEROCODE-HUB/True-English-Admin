@@ -431,18 +431,17 @@ export default function UserManagement() {
     }
 
     try {
-      // Check if email already exists in profiles (users)
-      const { data: existingProfiles, error: errProfiles } = await supabase
-        .from('profiles')
-        .select('id')
-        .ilike('email', inviteEmail)
-        .limit(1);
-      if (errProfiles) {
-        toast({ title: 'Error', description: errProfiles.message, variant: 'destructive' });
+      // Si el email ya es usuario, solo bloqueamos si YA tiene acceso. Si existe
+      // pero sin acceso (p. ej. entró con Google), permitimos invitarlo: recibirá
+      // el código y lo activará desde la pantalla de código de la app
+      // (validate-code en modo authenticated marca hasStudentCode sobre su cuenta).
+      const { data: accessStatus, error: accessErr } = await supabase.rpc('email_access_status', { p_email: inviteEmail });
+      if (accessErr) {
+        toast({ title: 'Error', description: accessErr.message, variant: 'destructive' });
         return;
       }
-      if (existingProfiles && existingProfiles.length > 0) {
-        toast({ title: 'Error', description: 'El email ya está registrado como usuario.', variant: 'destructive' });
+      if ((accessStatus as { has_access?: boolean } | null)?.has_access) {
+        toast({ title: 'Error', description: 'Este usuario ya tiene acceso a la app.', variant: 'destructive' });
         return;
       }
 
@@ -500,12 +499,12 @@ export default function UserManagement() {
             <a href="${androidLink}" style="display:inline-block;padding:10px 14px;background:#0a66c2;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Google Play (Android)</a>
           </p>
 
-          <p>Al registrarte en la aplicación, introduce el código arriba para completar tu registro.</p>
+          <p>Introduce este código en la aplicación (pantalla de código de estudiante) para activar tu acceso.</p>
 
           <p style="margin-top:18px">Si tienes problemas, visita <a href="${window.location.origin}" style="color:#015ea8;text-decoration:underline;">nuestra web</a> o contacta con soporte.</p>
         </div>`;
 
-      const text = `Hola ${inviteName},\n\nEste es tu codigo para registrarte en TrueEnglish: ${insertObj.code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nAl registrar, introduce el codigo para completar tu registro.`;
+      const text = `Hola ${inviteName},\n\nEste es tu codigo para registrarte en TrueEnglish: ${insertObj.code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nIntroduce este codigo en la app (pantalla de codigo de estudiante) para activar tu acceso.`;
 
       const payload = {
         from: FROM_EMAIL,
@@ -515,23 +514,45 @@ export default function UserManagement() {
         text,
       };
 
-      const resp = await fetch("https://api.resend.com/emails", {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await resp.json().catch(() => null);
-      if (!resp.ok) {
-        console.error('resend error', data);
-        await supabase.from('invitations').update({ email_status: 'failed' }).ilike('email', inviteEmail);
-        toast({ title: 'Error enviando email', description: data?.error || 'Error al enviar email. La invitación fue guardada — usa "Reenviar" para intentar de nuevo.', variant: 'destructive' });
-        await fetchInvitedStudents();
-        return;
+      // La invitación YA quedó creada arriba. El envío del email es best-effort:
+      // Resend no admite llamadas desde el navegador (CORS), así que si falla NO
+      // tratamos toda la invitación como fallida — avisamos y queda el botón
+      // "Reenviar" (o compartir el código que se muestra en el modal).
+      let emailOk = false;
+      let emailErrMsg = '';
+      try {
+        const resp = await fetch("https://api.resend.com/emails", {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json().catch(() => null);
+        if (resp.ok) {
+          emailOk = true;
+        } else {
+          console.error('resend error', data);
+          emailErrMsg = String(data?.error?.message || data?.error || `Error ${resp.status}`);
+        }
+      } catch (mailErr) {
+        console.error('resend fetch failed', mailErr);
+        emailErrMsg = 'el servicio de email no respondió';
       }
 
-      await supabase.from('invitations').update({ email_status: 'sent', email_sent_at: new Date().toISOString() }).ilike('email', inviteEmail);
-      toast({ title: 'Invitación enviada', description: 'La invitación fue guardada y el email fue enviado correctamente.' });
+      await supabase.from('invitations')
+        .update(emailOk
+          ? { email_status: 'sent', email_sent_at: new Date().toISOString() }
+          : { email_status: 'failed' })
+        .ilike('email', inviteEmail);
+
+      if (emailOk) {
+        toast({ title: 'Invitación enviada', description: 'La invitación fue creada y el email se envió correctamente.' });
+      } else {
+        toast({
+          title: 'Invitación creada (email no enviado)',
+          description: `Código: ${insertObj.code}. Hubo un problema al enviar el email (${emailErrMsg}). Usa "Reenviar" o comparte el código con el alumno.`,
+        });
+      }
+
       setIsInviteModalOpen(false);
       setInviteEmail('');
       setInviteName('');
@@ -585,12 +606,12 @@ export default function UserManagement() {
             <a href="${androidLink}" style="display:inline-block;padding:10px 14px;background:#0a66c2;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Google Play (Android)</a>
           </p>
 
-          <p>Al registrarte en la aplicación, introduce el código arriba para completar tu registro.</p>
+          <p>Introduce este código en la aplicación (pantalla de código de estudiante) para activar tu acceso.</p>
 
           <p style="margin-top:18px">Si tienes problemas, visita <a href="${window.location.origin}" style="color:#015ea8;text-decoration:underline;">nuestra web</a> o contacta con soporte.</p>
         </div>`;
 
-      const text = `Hola ${inviteName || inviteEmail},\n\nEste es tu codigo para registrarte en TrueEnglish: ${code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nAl registrar, introduce el codigo para completar tu registro.`;
+      const text = `Hola ${inviteName || inviteEmail},\n\nEste es tu codigo para registrarte en TrueEnglish: ${code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nIntroduce este codigo en la app (pantalla de codigo de estudiante) para activar tu acceso.`;
 
       const payload = {
         from: FROM_EMAIL,
@@ -600,20 +621,36 @@ export default function UserManagement() {
         text,
       };
 
-      const resp = await fetch("https://api.resend.com/emails", {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
-        body: JSON.stringify(payload),
-      });
+      let emailOk = false;
+      let emailErrMsg = '';
+      try {
+        const resp = await fetch("https://api.resend.com/emails", {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
+          body: JSON.stringify(payload),
+        });
+        const dataResp = await resp.json().catch(() => null);
+        if (resp.ok) {
+          emailOk = true;
+        } else {
+          console.error('resend resend error', dataResp);
+          emailErrMsg = String(dataResp?.error?.message || dataResp?.error || `Error ${resp.status}`);
+        }
+      } catch (mailErr) {
+        console.error('resend fetch failed', mailErr);
+        emailErrMsg = 'el servicio de email no respondió';
+      }
 
-      const dataResp = await resp.json().catch(() => null);
-      if (!resp.ok) {
-        console.error('resend resend error', dataResp);
-        await supabase.from('invitations').update({ email_status: 'failed' }).eq('id', studentId);
-        toast({ title: 'Error reenviando', description: dataResp?.error || 'No se pudo reenviar el email', variant: 'destructive' });
-      } else {
-        await supabase.from('invitations').update({ email_status: 'sent', email_sent_at: new Date().toISOString() }).eq('id', studentId);
+      await supabase.from('invitations')
+        .update(emailOk
+          ? { email_status: 'sent', email_sent_at: new Date().toISOString() }
+          : { email_status: 'failed' })
+        .eq('id', studentId);
+
+      if (emailOk) {
         toast({ title: 'Email reenviado', description: 'La invitación fue reenviada correctamente.' });
+      } else {
+        toast({ title: 'No se pudo enviar el email', description: `Comparte el código con el alumno: ${code}. (${emailErrMsg})` });
       }
     } catch (err) {
       console.error('Failed to resend invitation', err);

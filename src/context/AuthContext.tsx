@@ -31,21 +31,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let mounted = true;
 
     const init = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!mounted) return;
-      const u = data.session?.user ?? null;
-      setUser(u);
-      await loadRole(u);
-      if (mounted) setLoading(false);
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (!mounted) return;
+        const u = data.session?.user ?? null;
+        setUser(u);
+        await loadRole(u);
+      } catch (e) {
+        // Un fallo aquí (token inválido, red) no debe dejar la app colgada en
+        // `loading` (que pinta la pantalla en blanco vía RequireAuth).
+        console.error('[Auth] init error', e);
+      } finally {
+        if (mounted) setLoading(false);
+      }
     };
 
     init();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      // IMPORTANTE: NO hacer `await` de llamadas a Supabase dentro de este
+      // callback. supabase-js mantiene un lock mientras corre el callback, y una
+      // consulta (como loadRole -> supabase.from) esperaría ese mismo lock,
+      // provocando un deadlock que cuelga la app (pantalla en blanco) al
+      // refrescarse el token. Actualizamos el user de forma síncrona y diferimos
+      // la consulta de rol fuera del callback con setTimeout(0).
+      if (!mounted) return;
       const u = session?.user ?? null;
       setUser(u);
-      await loadRole(u);
       setLoading(false);
+      setTimeout(() => { loadRole(u); }, 0);
     });
 
     return () => {

@@ -273,8 +273,7 @@ export default function CourseManagement() {
           title: lessonData.titulo,
           description: lessonData.descripcion,
           level: lessonData.nivelAsociado,
-          mandatory: lessonData.obligatoria,
-          points: (lessonData as any).points ?? 0
+          mandatory: lessonData.obligatoria
         }).eq('id', editingLesson.id);
         if (error) throw error;
         // update local state with edited values
@@ -285,7 +284,6 @@ export default function CourseManagement() {
           nivelAsociado: lessonData.nivelAsociado,
           obligatoria: lessonData.obligatoria
         };
-        (updatedLesson as any).points = (lessonData as any).points ?? 0;
         setLessons(prev => prev.map(l => l.id === updatedLesson.id ? updatedLesson : l));
         toast({ title: 'Lección actualizada', description: 'Los datos de la lección han sido actualizados correctamente.' });
       } else {
@@ -295,7 +293,6 @@ export default function CourseManagement() {
           description: lessonData.descripcion,
           level: lessonData.nivelAsociado,
           mandatory: lessonData.obligatoria,
-          points: (lessonData as any).points ?? 0,
           sort_order: maxSortOrder + 1
         }]).select().single();
         if (error) throw error;
@@ -306,7 +303,6 @@ export default function CourseManagement() {
           nivelAsociado: data.level,
           obligatoria: data.mandatory,
           fechaCreacion: data.created_at,
-          points: data.points ?? 0,
           notas: [],
           ejercicios: []
         }, ...prev]);
