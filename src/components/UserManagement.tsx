@@ -431,18 +431,17 @@ export default function UserManagement() {
     }
 
     try {
-      // Check if email already exists in profiles (users)
-      const { data: existingProfiles, error: errProfiles } = await supabase
-        .from('profiles')
-        .select('id')
-        .ilike('email', inviteEmail)
-        .limit(1);
-      if (errProfiles) {
-        toast({ title: 'Error', description: errProfiles.message, variant: 'destructive' });
+      // Si el email ya es usuario, solo bloqueamos si YA tiene acceso. Si existe
+      // pero sin acceso (p. ej. entró con Google), permitimos invitarlo: recibirá
+      // el código y lo activará desde la pantalla de código de la app
+      // (validate-code en modo authenticated marca hasStudentCode sobre su cuenta).
+      const { data: accessStatus, error: accessErr } = await supabase.rpc('email_access_status', { p_email: inviteEmail });
+      if (accessErr) {
+        toast({ title: 'Error', description: accessErr.message, variant: 'destructive' });
         return;
       }
-      if (existingProfiles && existingProfiles.length > 0) {
-        toast({ title: 'Error', description: 'El email ya está registrado como usuario.', variant: 'destructive' });
+      if ((accessStatus as { has_access?: boolean } | null)?.has_access) {
+        toast({ title: 'Error', description: 'Este usuario ya tiene acceso a la app.', variant: 'destructive' });
         return;
       }
 
@@ -500,12 +499,12 @@ export default function UserManagement() {
             <a href="${androidLink}" style="display:inline-block;padding:10px 14px;background:#0a66c2;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Google Play (Android)</a>
           </p>
 
-          <p>Al registrarte en la aplicación, introduce el código arriba para completar tu registro.</p>
+          <p>Introduce este código en la aplicación (pantalla de código de estudiante) para activar tu acceso.</p>
 
           <p style="margin-top:18px">Si tienes problemas, visita <a href="${window.location.origin}" style="color:#015ea8;text-decoration:underline;">nuestra web</a> o contacta con soporte.</p>
         </div>`;
 
-      const text = `Hola ${inviteName},\n\nEste es tu codigo para registrarte en TrueEnglish: ${insertObj.code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nAl registrar, introduce el codigo para completar tu registro.`;
+      const text = `Hola ${inviteName},\n\nEste es tu codigo para registrarte en TrueEnglish: ${insertObj.code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nIntroduce este codigo en la app (pantalla de codigo de estudiante) para activar tu acceso.`;
 
       const payload = {
         from: FROM_EMAIL,
@@ -585,12 +584,12 @@ export default function UserManagement() {
             <a href="${androidLink}" style="display:inline-block;padding:10px 14px;background:#0a66c2;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Google Play (Android)</a>
           </p>
 
-          <p>Al registrarte en la aplicación, introduce el código arriba para completar tu registro.</p>
+          <p>Introduce este código en la aplicación (pantalla de código de estudiante) para activar tu acceso.</p>
 
           <p style="margin-top:18px">Si tienes problemas, visita <a href="${window.location.origin}" style="color:#015ea8;text-decoration:underline;">nuestra web</a> o contacta con soporte.</p>
         </div>`;
 
-      const text = `Hola ${inviteName || inviteEmail},\n\nEste es tu codigo para registrarte en TrueEnglish: ${code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nAl registrar, introduce el codigo para completar tu registro.`;
+      const text = `Hola ${inviteName || inviteEmail},\n\nEste es tu codigo para registrarte en TrueEnglish: ${code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nIntroduce este codigo en la app (pantalla de codigo de estudiante) para activar tu acceso.`;
 
       const payload = {
         from: FROM_EMAIL,
