@@ -37,14 +37,14 @@ export default function AdminLayout() {
   const { signOut } = useAuth();
 
   const { user, isAdmin, loading } = useAuth();
-  const [profile, setProfile] = useState<{ name?: string | null; last_name?: string | null; email?: string | null; avatar_url?: string | null } | null>(null);
+  const [profile, setProfile] = useState<{ name?: string | null; last_name?: string | null; email?: string | null } | null>(null);
 
   useEffect(() => {
     let mounted = true;
     const loadProfile = async () => {
       if (!user?.id) return setProfile(null);
       try {
-        const { data, error } = await supabase.from('profiles').select('name,last_name,email,avatar_url').eq('id', user.id).maybeSingle();
+        const { data, error } = await supabase.from('profiles').select('name,last_name,email').eq('id', user.id).maybeSingle();
         if (error) {
           console.error('failed to load profile', error);
           return;
@@ -118,9 +118,9 @@ export default function AdminLayout() {
             <div className="mt-auto p-4 border-t border-sidebar-border">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center overflow-hidden">
-                  {profile?.avatar_url ? (
+                  {(user?.user_metadata?.avatar_url || user?.user_metadata?.picture) ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={profile.avatar_url} alt="avatar" className="w-full h-full object-cover" />
+                    <img src={(user.user_metadata.avatar_url || user.user_metadata.picture) as string} alt="avatar" className="w-full h-full object-cover" />
                   ) : (
                     <span className="text-accent-foreground font-bold">{(profile?.name ? profile.name[0] : (user?.email ? user.email[0] : 'U')).toUpperCase()}</span>
                   )}
