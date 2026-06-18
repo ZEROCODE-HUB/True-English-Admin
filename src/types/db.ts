@@ -72,3 +72,28 @@ export interface RPCGetLessonDetailResponse {
   lesson: RPCLessonCore;
   content: RPCContentItem[];
 }
+
+// Fila de avance por alumno tal como la devuelve la RPC admin_get_students_progress (snake_case)
+export interface StudentProgress {
+  id: string;
+  name: string | null;
+  last_name: string | null;
+  email: string | null;
+  company: string | null;
+  nivel_actual: string | null;
+  status: string | null;
+  tipo: string | null;
+  created_at: string | null;
+  puntos: number;
+  completed_total: number;
+  lessons_total: number;
+  completed_in_level: number;
+  lessons_in_level: number;
+  pct_avance: number;
+  horas_totales_ms: number;
+  horas_mes_ms: number;
+  streak_count: number;
+  streak_best: number;
+  logros_count: number;
+  ultima_actividad: string | null;
+}
