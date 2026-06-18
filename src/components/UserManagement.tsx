@@ -11,7 +11,9 @@ import {
   Mail,
   Loader2,
   Check,
-  X
+  X,
+  Download,
+  Eye
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,10 +36,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Progress } from "@/components/ui/progress";
 import UserFormModal from "./UserFormModal";
 import DeleteConfirmationDialog from "./DeleteConfirmationDialog";
+import StudentProgressModal from "./StudentProgressModal";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
+import type { StudentProgress } from "@/types/db";
+import { msToHumanHours, msToDecimalHours, fmtDate } from "@/lib/format";
 
 export interface User {
   id: string;
@@ -94,6 +100,29 @@ export default function UserManagement() {
   const [page, setPage] = useState(1);
   const pageSize = 5;
   const [total, setTotal] = useState(0);
+
+  // Avance de alumnos (RPC admin_get_students_progress): mapa por id para la tabla + arreglo completo para export
+  const [progressById, setProgressById] = useState<Record<string, StudentProgress>>({});
+  const [allProgress, setAllProgress] = useState<StudentProgress[]>([]);
+  const [exporting, setExporting] = useState(false);
+  const [progressModal, setProgressModal] = useState<StudentProgress | null>(null);
+
+  const fetchProgress = async () => {
+    try {
+      const { data, error } = await supabase.rpc("admin_get_students_progress");
+      if (error) {
+        console.error("failed to load student progress", error);
+        return;
+      }
+      const rows = (data ?? []) as StudentProgress[];
+      setAllProgress(rows);
+      const map: Record<string, StudentProgress> = {};
+      rows.forEach((r) => { map[r.id] = r; });
+      setProgressById(map);
+    } catch (err) {
+      console.error("error calling admin_get_students_progress", err);
+    }
+  };
 
   // Fetch profiles from Supabase with server-side pagination, search and filters
   const fetchUsers = async (opts?: { page?: number }) => {
@@ -352,9 +381,10 @@ export default function UserManagement() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
-  // fetch invited students on mount
+  // fetch invited students + student progress on mount
   useEffect(() => {
     fetchInvitedStudents();
+    fetchProgress();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -368,6 +398,62 @@ export default function UserManagement() {
 
   const filteredUsers = users;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  // Exporta el avance a Excel respetando los filtros activos (nivel, estado, búsqueda)
+  const handleExportExcel = async () => {
+    setExporting(true);
+    try {
+      const term = searchTerm.trim().toLowerCase();
+      const filtered = allProgress.filter((s) => {
+        if (filterLevel !== "all" && (s.nivel_actual ?? "") !== filterLevel) return false;
+        if (filterStatus !== "all" && (s.status ?? "") !== filterStatus) return false;
+        if (term) {
+          const hay = `${s.name ?? ""} ${s.last_name ?? ""} ${s.email ?? ""}`.toLowerCase();
+          if (!hay.includes(term)) return false;
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        toast({ title: "Sin datos", description: "No hay alumnos que coincidan con los filtros." });
+        return;
+      }
+
+      // Carga diferida: exceljs es pesado, solo se descarga al exportar
+      const { exportToXlsx } = await import("@/lib/export");
+      await exportToXlsx<StudentProgress>({
+        filename: "reporte_alumnos.xlsx",
+        sheetName: "Avance de Alumnos",
+        rows: filtered,
+        columns: [
+          { header: "Nombre", width: 18, value: (s) => s.name ?? "" },
+          { header: "Apellido", width: 18, value: (s) => s.last_name ?? "" },
+          { header: "Email", width: 30, value: (s) => s.email ?? "" },
+          { header: "Empresa", width: 18, value: (s) => s.company ?? "" },
+          { header: "Tipo", width: 12, value: (s) => s.tipo ?? "" },
+          { header: "Nivel", width: 10, value: (s) => s.nivel_actual ?? "Sin nivel" },
+          { header: "Estado", width: 12, value: (s) => s.status ?? "" },
+          { header: "Puntos", width: 10, numFmt: "0", value: (s) => s.puntos ?? 0 },
+          { header: "% Avance (nivel)", width: 16, numFmt: "0", value: (s) => s.pct_avance ?? 0 },
+          { header: "Lecciones completadas", width: 20, numFmt: "0", value: (s) => s.completed_total ?? 0 },
+          { header: "Lecciones totales", width: 16, numFmt: "0", value: (s) => s.lessons_total ?? 0 },
+          { header: "Horas totales", width: 14, numFmt: "0.0", value: (s) => msToDecimalHours(s.horas_totales_ms) },
+          { header: "Horas del mes", width: 14, numFmt: "0.0", value: (s) => msToDecimalHours(s.horas_mes_ms) },
+          { header: "Racha actual", width: 12, numFmt: "0", value: (s) => s.streak_count ?? 0 },
+          { header: "Mejor racha", width: 12, numFmt: "0", value: (s) => s.streak_best ?? 0 },
+          { header: "Logros", width: 10, numFmt: "0", value: (s) => s.logros_count ?? 0 },
+          { header: "Última actividad", width: 16, value: (s) => fmtDate(s.ultima_actividad) },
+          { header: "Fecha de registro", width: 16, value: (s) => fmtDate(s.created_at) },
+        ],
+      });
+
+      toast({ title: "Exportado", description: `Se exportaron ${filtered.length} alumno(s) a Excel.` });
+    } catch (err) {
+      toast({ title: "Error", description: `No se pudo exportar: ${String(err)}`, variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleInviteUser = () => {
     setInviteEmail("");
@@ -684,7 +770,11 @@ export default function UserManagement() {
           <p className="text-muted-foreground">Administra los usuarios de la plataforma</p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={handleInviteUser} variant="outline" className="bg-secondary hover:bg-secondary/80">
+          <Button onClick={handleExportExcel} variant="outline" disabled={exporting || allProgress.length === 0}>
+            {exporting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+            Exportar a Excel
+          </Button>
+          <Button onClick={handleInviteUser} variant="outline" className="bg-secondary text-secondary-foreground hover:bg-secondary/80 hover:text-secondary-foreground">
             <Mail className="w-4 h-4 mr-2" />
             Invitar Alumno
           </Button>
@@ -818,13 +908,17 @@ export default function UserManagement() {
                 <TableHead>Email</TableHead>
                 <TableHead>Tipo de Usuario</TableHead>
                 <TableHead>Nivel Actual</TableHead>
+                <TableHead>Puntos</TableHead>
+                <TableHead>% Avance</TableHead>
                 <TableHead>Fecha de Registro</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredUsers.map((user) => (
+              {filteredUsers.map((user) => {
+                const prog = progressById[user.id];
+                return (
                 <TableRow key={user.id}>
                   <TableCell className="font-medium">{user.nombre}</TableCell>
                   <TableCell>{user.apellido}</TableCell>
@@ -839,6 +933,15 @@ export default function UserManagement() {
                       {user.nivelActual ? user.nivelActual : 'Sin nivel'}
                     </Badge>
                   </TableCell>
+                  <TableCell className="font-medium">{prog ? prog.puntos : '—'}</TableCell>
+                  <TableCell>
+                    {prog ? (
+                      <div className="flex items-center gap-2 min-w-[120px]">
+                        <Progress value={prog.pct_avance} className="h-2 w-16" />
+                        <span className="text-xs text-muted-foreground tabular-nums">{prog.pct_avance}%</span>
+                      </div>
+                    ) : '—'}
+                  </TableCell>
                   <TableCell>{format(user.fechaRegistro, "dd/MM/yyyy")}</TableCell>
                   <TableCell>
                     <Badge variant={user.estado === 'activo' ? 'default' : 'secondary'}>
@@ -847,6 +950,15 @@ export default function UserManagement() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => prog && setProgressModal(prog)}
+                        disabled={!prog}
+                        title="Ver avance"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
@@ -876,7 +988,8 @@ export default function UserManagement() {
                     </div>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </CardContent>
@@ -888,6 +1001,13 @@ export default function UserManagement() {
         onSave={handleSaveUser}
         user={editingUser}
       />
+
+      {progressModal && (
+        <StudentProgressModal
+          progress={progressModal}
+          onClose={() => setProgressModal(null)}
+        />
+      )}
 
       {/* Pagination controls (moved to bottom) */}
       <div className="flex items-center justify-between">
