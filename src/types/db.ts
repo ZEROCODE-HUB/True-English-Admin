@@ -97,3 +97,68 @@ export interface StudentProgress {
   logros_count: number;
   ultima_actividad: string | null;
 }
+
+// ===== Enterprise / Companies =====
+
+export interface Company {
+  id: string;
+  name: string;
+  slug: string;
+  active: boolean;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  // RPC computed fields
+  member_count?: number;
+  area_count?: number;
+  lesson_count?: number;
+}
+
+export interface Area {
+  id: string;
+  company_id: string;
+  name: string;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+  // RPC computed fields
+  member_count?: number;
+  lesson_count?: number;
+}
+
+export interface CompanyMembership {
+  id: string;
+  company_id: string;
+  area_id: string | null;
+  profile_id: string;
+  active: boolean;
+  created_at: string;
+  // Joined fields from RPC
+  profile_name?: string | null;
+  profile_last_name?: string | null;
+  profile_email?: string | null;
+  area_name?: string | null;
+}
+
+export interface LessonAssignment {
+  id: string;
+  lesson_id: string;
+  company_id: string;
+  area_id: string | null;
+  assigned_by: string | null;
+  created_at: string;
+}
+
+export interface CompanyStats {
+  total_members: number;
+  total_areas: number;
+  total_lessons_assigned: number;
+  members_by_area: Array<{ area_id: string; area_name: string; member_count: number }>;
+  lessons_by_area: Array<{ area_id: string; area_name: string; lesson_count: number }>;
+  progress_summary: {
+    total_enrollments: number;
+    completed: number;
+    in_progress: number;
+    avg_completion_pct: number;
+  };
+}

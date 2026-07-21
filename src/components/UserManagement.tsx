@@ -106,6 +106,7 @@ export default function UserManagement() {
   const [allProgress, setAllProgress] = useState<StudentProgress[]>([]);
   const [exporting, setExporting] = useState(false);
   const [progressModal, setProgressModal] = useState<StudentProgress | null>(null);
+  const [membershipsByUser, setMembershipsByUser] = useState<Record<string, { companyId: string; companyName: string; areaId: string | null; areaName: string | null }>>({});
 
   const fetchProgress = async () => {
     try {
@@ -169,6 +170,7 @@ export default function UserManagement() {
         }));
         setUsers(mapped);
         setTotal(typeof count === 'number' ? count : mapped.length);
+        fetchMemberships(mapped.map(u => u.id));
       } else {
         setUsers([]);
         setTotal(0);
@@ -176,6 +178,27 @@ export default function UserManagement() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchMemberships = async (userIds: string[]) => {
+    if (userIds.length === 0) { setMembershipsByUser({}); return; }
+    const { data } = await supabase
+      .from("company_memberships")
+      .select("profile_id, company_id, area_id, companies!company_id(name), areas!area_id(name)")
+      .in("profile_id", userIds);
+    const map: Record<string, { companyId: string; companyName: string; areaId: string | null; areaName: string | null }> = {};
+    (data || []).forEach((r: any) => {
+      const pid = r.profile_id;
+      if (!map[pid]) {
+        map[pid] = {
+          companyId: r.company_id,
+          companyName: r.companies?.name ?? "—",
+          areaId: r.area_id,
+          areaName: r.areas?.name ?? null,
+        };
+      }
+    });
+    setMembershipsByUser(map);
   };
 
   const handleCreateUser = () => {
@@ -293,6 +316,27 @@ export default function UserManagement() {
       if (error) {
         toast({ title: 'Error', description: error.message, variant: 'destructive' });
       } else {
+        // Handle membership
+        const companyId = userData.companyId as string | null;
+        const areaId = userData.areaId as string | null;
+        const existing = membershipsByUser[editingUser.id];
+        if (companyId) {
+          if (existing && existing.companyId === companyId) {
+            // Same company — update area if changed
+            if (existing.areaId !== areaId) {
+              await supabase.from("company_memberships").update({ area_id: areaId }).eq("profile_id", editingUser.id).eq("company_id", companyId);
+            }
+          } else {
+            // New company — delete old membership if any, create new
+            if (existing) {
+              await supabase.from("company_memberships").delete().eq("profile_id", editingUser.id).eq("company_id", existing.companyId);
+            }
+            await supabase.from("company_memberships").insert({ profile_id: editingUser.id, company_id: companyId, area_id: areaId, active: true });
+          }
+        } else if (existing) {
+          // No company selected — remove membership
+          await supabase.from("company_memberships").delete().eq("profile_id", editingUser.id).eq("company_id", existing.companyId);
+        }
         toast({ title: 'Usuario actualizado', description: 'Los datos del usuario han sido actualizados correctamente.' });
         await fetchUsers();
       }
@@ -349,10 +393,21 @@ export default function UserManagement() {
               console.error('create-user function error', resp.status, text);
               return;
             }
+            fnResult = { data: parsed };
           } catch (fetchErr) {
             toast({ title: 'Error', description: `No se pudo invocar la función: ${String(fetchErr)}`, variant: 'destructive' });
             console.error('fetch create-user failed', fetchErr);
             return;
+          }
+        }
+
+        // Create membership if company selected
+        const companyId = userData.companyId as string | null;
+        const areaId = userData.areaId as string | null;
+        if (companyId) {
+          const newUserId = fnResult?.data?.id || fnResult?.data?.user?.id;
+          if (newUserId) {
+            await supabase.from("company_memberships").insert({ profile_id: newUserId, company_id: companyId, area_id: areaId, active: true });
           }
         }
 
@@ -900,17 +955,19 @@ export default function UserManagement() {
           <CardTitle>Usuarios ({filteredUsers.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
+          <div className="overflow-x-auto">
+          <Table className="min-w-[1050px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Nombre</TableHead>
-                <TableHead>Apellido</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Tipo de Usuario</TableHead>
-                <TableHead>Nivel Actual</TableHead>
-                <TableHead>Puntos</TableHead>
-                <TableHead>% Avance</TableHead>
-                <TableHead>Fecha de Registro</TableHead>
+                <TableHead className="whitespace-nowrap">Nombre</TableHead>
+                <TableHead className="whitespace-nowrap">Apellido</TableHead>
+                <TableHead className="whitespace-nowrap">Email</TableHead>
+                <TableHead className="min-w-[180px]">Empresa</TableHead>
+                <TableHead className="whitespace-nowrap">Tipo</TableHead>
+                <TableHead className="whitespace-nowrap">Nivel</TableHead>
+                <TableHead className="text-center whitespace-nowrap">Puntos</TableHead>
+                <TableHead className="whitespace-nowrap">% Avance</TableHead>
+                <TableHead className="whitespace-nowrap">Registro</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
@@ -920,29 +977,41 @@ export default function UserManagement() {
                 const prog = progressById[user.id];
                 return (
                 <TableRow key={user.id}>
-                  <TableCell className="font-medium">{user.nombre}</TableCell>
-                  <TableCell>{user.apellido}</TableCell>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>
+                  <TableCell className="font-medium whitespace-nowrap">{user.nombre}</TableCell>
+                  <TableCell className="whitespace-nowrap">{user.apellido}</TableCell>
+                  <TableCell className="whitespace-nowrap">{user.email}</TableCell>
+                  <TableCell className="min-w-[180px]">
+                    {membershipsByUser[user.id] ? (
+                      <span className="text-sm whitespace-nowrap">
+                        {membershipsByUser[user.id].companyName}
+                        {membershipsByUser[user.id].areaName && (
+                          <span className="text-muted-foreground"> — {membershipsByUser[user.id].areaName}</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">
                     <Badge variant={user.tipoUsuario === 'alumno' ? 'default' : 'outline'}>
                       {user.tipoUsuario}
                     </Badge>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="whitespace-nowrap">
                     <Badge className={user.nivelActual && levelColors[user.nivelActual as keyof typeof levelColors] ? levelColors[user.nivelActual as keyof typeof levelColors] : 'bg-gray-100 text-gray-600'}>
                       {user.nivelActual ? user.nivelActual : 'Sin nivel'}
                     </Badge>
                   </TableCell>
-                  <TableCell className="font-medium">{prog ? prog.puntos : '—'}</TableCell>
+                  <TableCell className="text-center tabular-nums">{prog ? prog.puntos : '—'}</TableCell>
                   <TableCell>
                     {prog ? (
-                      <div className="flex items-center gap-2 min-w-[120px]">
-                        <Progress value={prog.pct_avance} className="h-2 w-16" />
-                        <span className="text-xs text-muted-foreground tabular-nums">{prog.pct_avance}%</span>
+                      <div className="flex items-center gap-1.5 min-w-[90px]">
+                        <Progress value={prog.pct_avance} className="h-2 w-14" />
+                        <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">{prog.pct_avance}%</span>
                       </div>
                     ) : '—'}
                   </TableCell>
-                  <TableCell>{format(user.fechaRegistro, "dd/MM/yyyy")}</TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground text-sm">{format(user.fechaRegistro, "dd/MM/yyyy")}</TableCell>
                   <TableCell>
                     <Badge variant={user.estado === 'activo' ? 'default' : 'secondary'}>
                       {user.estado === 'activo' ? 'Activo' : 'Inactivo'}
@@ -992,6 +1061,7 @@ export default function UserManagement() {
               })}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 
@@ -1000,6 +1070,8 @@ export default function UserManagement() {
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveUser}
         user={editingUser}
+        initialCompanyId={editingUser ? (membershipsByUser[editingUser.id]?.companyId ?? null) : null}
+        initialAreaId={editingUser ? (membershipsByUser[editingUser.id]?.areaId ?? null) : null}
       />
 
       {progressModal && (

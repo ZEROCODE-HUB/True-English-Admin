@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Plus, Edit, Eye, Trash2, ArrowUpDown, GripVertical } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Plus, Edit, Eye, Trash2, ArrowUpDown, GripVertical, SearchX, MoreHorizontal, Building2, MapPin, Lock } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -23,6 +23,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -36,7 +38,7 @@ import LessonDetailView from "./LessonDetailView";
 import { supabase } from "@/lib/supabase";
 import DeleteConfirmationDialog from "./DeleteConfirmationDialog";
 import { useToast } from "@/hooks/use-toast";
-import type { Lesson, Note, Exercise, ExerciseOption, RPCLessonCore, RPCGetLessonDetailResponse, RPCContentItem } from '@/types/db';
+import type { Lesson, Note, Exercise, ExerciseOption, RPCLessonCore, RPCGetLessonDetailResponse, RPCContentItem, Company, Area } from '@/types/db';
 
 // lessons will be loaded from Supabase
 
@@ -49,37 +51,116 @@ const levelColors = {
   C2: "bg-purple-100 text-purple-800"
 };
 
-const SortableLessonRow = ({ lesson, onView, onEdit, onDelete }: {
+interface AssignmentInfo {
+  companyId: string;
+  companyName: string;
+  areaId: string | null;
+  areaName: string | null;
+}
+
+const MAX_VISIBLE_BADGES = 2;
+
+const buildAssignedTooltip = (assignments: AssignmentInfo[]) => {
+  const grouped: Record<string, string[]> = {};
+  assignments.forEach(a => {
+    if (!grouped[a.companyName]) grouped[a.companyName] = [];
+    grouped[a.companyName].push(a.areaName || "Toda la empresa");
+  });
+  return Object.entries(grouped).map(([company, areas]) =>
+    `• ${company} → ${areas.join(", ")}`
+  ).join("\n");
+};
+
+const SortableLessonRow = ({ lesson, assignments, onView, onEdit, onDelete }: {
   lesson: Lesson;
+  assignments: AssignmentInfo[];
   onView: (l: Lesson) => void;
   onEdit: (l: Lesson) => void;
   onDelete: (id: string) => void;
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: lesson.id });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
+  const hasAssignments = assignments.length > 0;
+  const visibleBadges = assignments.slice(0, MAX_VISIBLE_BADGES);
+  const overflowCount = assignments.length - MAX_VISIBLE_BADGES;
+  const tooltipText = buildAssignedTooltip(assignments);
+
   return (
-    <TableRow ref={setNodeRef} style={style}>
+    <TableRow
+      ref={setNodeRef}
+      style={style}
+      className={`transition-colors ${hasAssignments ? "border-l-[3px] border-l-primary/70 bg-primary/[0.04] hover:bg-primary/[0.08]" : "hover:bg-muted/50"}`}
+    >
       <TableCell>
         <button {...attributes} {...listeners} className="cursor-grab touch-none text-muted-foreground hover:text-foreground focus:outline-none">
           <GripVertical className="w-4 h-4" />
         </button>
       </TableCell>
-      <TableCell className="font-medium max-w-xs truncate">{lesson.titulo}</TableCell>
-      <TableCell className="max-w-xs truncate">{lesson.descripcion}</TableCell>
+      <TableCell className="font-medium max-w-[220px]">
+        <div className="flex items-center gap-1.5">
+          {hasAssignments && <Lock className="w-3.5 h-3.5 text-primary/60 shrink-0" />}
+          <span className="truncate block">{lesson.titulo}</span>
+        </div>
+      </TableCell>
+      <TableCell className="max-w-[180px]">
+        <span className="truncate block text-muted-foreground text-sm">{lesson.descripcion}</span>
+      </TableCell>
       <TableCell>
         <Badge className={levelColors[lesson.nivelAsociado as keyof typeof levelColors]}>{lesson.nivelAsociado}</Badge>
       </TableCell>
       <TableCell>
-        <Badge variant={lesson.obligatoria ? "default" : "secondary"}>{lesson.obligatoria ? "Sí" : "No"}</Badge>
+        <Badge variant={lesson.obligatoria ? "default" : "secondary"} className="text-xs">{lesson.obligatoria ? "Sí" : "No"}</Badge>
       </TableCell>
-      <TableCell>{lesson.notas.length}</TableCell>
-      <TableCell>{lesson.ejercicios.length}</TableCell>
-      <TableCell className="text-right">
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={() => onView(lesson)}><Eye className="w-4 h-4" /></Button>
-          <Button variant="outline" size="sm" onClick={() => onEdit(lesson)}><Edit className="w-4 h-4" /></Button>
-          <Button variant="outline" size="sm" onClick={() => onDelete(lesson.id)} className="text-destructive hover:text-destructive"><Trash2 className="w-4 h-4" /></Button>
+      <TableCell>
+        <div className="flex flex-col gap-0.5 max-w-[240px]">
+          {assignments.length === 0 ? (
+            <span className="text-muted-foreground text-sm italic">Público</span>
+          ) : (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex flex-wrap gap-1 cursor-default">
+                    {visibleBadges.map((a, i) => (
+                      <Badge key={i} variant="outline" className="text-xs whitespace-nowrap gap-1">
+                        <Building2 className="w-3 h-3" />
+                        {a.companyName}{a.areaName ? `: ${a.areaName}` : ""}
+                      </Badge>
+                    ))}
+                    {overflowCount > 0 && (
+                      <Badge variant="secondary" className="text-xs">+{overflowCount} más</Badge>
+                    )}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="left" className="max-w-xs whitespace-pre-line">
+                  <p className="text-xs">{tooltipText}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
+      </TableCell>
+      <TableCell className="w-[70px] text-center text-sm tabular-nums">{lesson.notas.length}</TableCell>
+      <TableCell className="w-[80px] text-center text-sm tabular-nums">{lesson.ejercicios.length}</TableCell>
+      <TableCell className="text-right">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+              <MoreHorizontal className="w-4 h-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => onView(lesson)}>
+              <Eye className="w-4 h-4 mr-2" /> Ver detalle
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onEdit(lesson)}>
+              <Edit className="w-4 h-4 mr-2" /> Editar
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => onDelete(lesson.id)} className="text-destructive focus:text-destructive">
+              <Trash2 className="w-4 h-4 mr-2" /> Eliminar
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </TableCell>
     </TableRow>
   );
@@ -99,6 +180,9 @@ export default function CourseManagement() {
   const [reorderMode, setReorderMode] = useState(false);
   const [reorderedLessons, setReorderedLessons] = useState<Lesson[]>([]);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
+  const [assignmentsByLesson, setAssignmentsByLesson] = useState<Record<string, AssignmentInfo[]>>({});
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [selectedCompany, setSelectedCompany] = useState<string>("all");
   const { toast } = useToast();
 
   const sensors = useSensors(
@@ -168,20 +252,49 @@ export default function CourseManagement() {
           ejercicios: []
         }));
         setLessons(mapped);
+        fetchAssignments(mapped.map(l => l.id));
       } catch (err) {
         console.error('Error fetching lessons', err);
         toast({ title: 'Error', description: 'No se pudieron cargar las lecciones.' });
       }
     };
 
+    const fetchCompanies = async () => {
+      const { data } = await supabase.from("companies").select("id, name, slug, active").eq("active", true).order("name");
+      setCompanies((data as Company[]) || []);
+    };
+
     fetchLessons();
+    fetchCompanies();
   }, [toast]);
+
+  const fetchAssignments = useCallback(async (lessonIds: string[]) => {
+    if (lessonIds.length === 0) { setAssignmentsByLesson({}); return; }
+    const { data } = await supabase
+      .from("lesson_assignments")
+      .select("lesson_id, company_id, area_id, companies!company_id(name), areas!area_id(name)")
+      .in("lesson_id", lessonIds);
+    const map: Record<string, AssignmentInfo[]> = {};
+    (data || []).forEach((r: any) => {
+      const lid = r.lesson_id;
+      if (!map[lid]) map[lid] = [];
+      map[lid].push({
+        companyId: r.company_id,
+        companyName: r.companies?.name ?? "—",
+        areaId: r.area_id,
+        areaName: r.areas?.name ?? null,
+      });
+    });
+    setAssignmentsByLesson(map);
+  }, []);
 
   const filteredLessons = lessons.filter(lesson => {
     const matchesSearch = lesson.titulo.toLowerCase().includes(searchTerm.toLowerCase()) ||
       lesson.descripcion.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesLevel = selectedLevel === "all" || lesson.nivelAsociado === selectedLevel;
-    return matchesSearch && matchesLevel;
+    const matchesCompany = selectedCompany === "all" ||
+      (assignmentsByLesson[lesson.id] || []).some(a => a.companyId === selectedCompany);
+    return matchesSearch && matchesLevel && matchesCompany;
   });
 
   const handleCreateLesson = () => {
@@ -266,8 +379,9 @@ export default function CourseManagement() {
     });
   };
 
-  const handleSaveLesson = async (lessonData: Omit<Lesson, 'id' | 'fechaCreacion' | 'notas' | 'ejercicios'>) => {
+  const handleSaveLesson = async (lessonData: Omit<Lesson, 'id' | 'fechaCreacion' | 'notas' | 'ejercicios'> & { assignments?: { companyId: string; areaId: string | null }[] }) => {
     try {
+      const newAssignments = lessonData.assignments || [];
       if (editingLesson) {
         const { error } = await supabase.from('lessons').update({
           title: lessonData.titulo,
@@ -276,7 +390,28 @@ export default function CourseManagement() {
           mandatory: lessonData.obligatoria
         }).eq('id', editingLesson.id);
         if (error) throw error;
-        // update local state with edited values
+
+        // Diff assignments
+        const { data: existing } = await supabase.from("lesson_assignments").select("company_id, area_id").eq("lesson_id", editingLesson.id);
+        const existingSet = new Set((existing || []).map((r: any) => `${r.company_id}|${r.area_id || ""}`));
+        const newSet = new Set(newAssignments.map(a => `${a.companyId}|${a.areaId || ""}`));
+
+        // Delete removed
+        for (const key of existingSet) {
+          if (!newSet.has(key)) {
+            const [cid, aid] = key.split("|");
+            let q = supabase.from("lesson_assignments").delete().eq("lesson_id", editingLesson.id).eq("company_id", cid);
+            if (aid) q = q.eq("area_id", aid); else q = q.is("area_id", null);
+            await q;
+          }
+        }
+        // Insert new
+        for (const a of newAssignments) {
+          if (!existingSet.has(`${a.companyId}|${a.areaId || ""}`)) {
+            await supabase.from("lesson_assignments").insert({ lesson_id: editingLesson.id, company_id: a.companyId, area_id: a.areaId });
+          }
+        }
+
         const updatedLesson: Lesson = {
           ...editingLesson,
           titulo: lessonData.titulo,
@@ -285,6 +420,7 @@ export default function CourseManagement() {
           obligatoria: lessonData.obligatoria
         };
         setLessons(prev => prev.map(l => l.id === updatedLesson.id ? updatedLesson : l));
+        fetchAssignments(lessons.map(l => l.id));
         toast({ title: 'Lección actualizada', description: 'Los datos de la lección han sido actualizados correctamente.' });
       } else {
         const maxSortOrder = lessons.reduce((max, l) => Math.max(max, (l as any).sort_order ?? 0), 0);
@@ -296,6 +432,12 @@ export default function CourseManagement() {
           sort_order: maxSortOrder + 1
         }]).select().single();
         if (error) throw error;
+
+        // Insert assignments
+        for (const a of newAssignments) {
+          await supabase.from("lesson_assignments").insert({ lesson_id: data.id, company_id: a.companyId, area_id: a.areaId });
+        }
+
         setLessons(prev => [{
           id: data.id,
           titulo: data.title,
@@ -306,6 +448,7 @@ export default function CourseManagement() {
           notas: [],
           ejercicios: []
         }, ...prev]);
+        if (newAssignments.length > 0) fetchAssignments([data.id, ...lessons.map(l => l.id)]);
         toast({ title: 'Lección creada', description: 'La nueva lección ha sido creada correctamente.' });
       }
       setIsModalOpen(false);
@@ -394,6 +537,19 @@ export default function CourseManagement() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="w-52">
+              <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Filtrar por empresa" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las empresas</SelectItem>
+                  {companies.map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -417,8 +573,9 @@ export default function CourseManagement() {
                       <TableHead>Descripción</TableHead>
                       <TableHead>Nivel</TableHead>
                       <TableHead>Obligatoria</TableHead>
-                      <TableHead>Notas</TableHead>
-                      <TableHead>Ejercicios</TableHead>
+                      <TableHead>Empresa</TableHead>
+                      <TableHead className="text-center">Notas</TableHead>
+                      <TableHead className="text-center">Ejercicios</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -427,6 +584,7 @@ export default function CourseManagement() {
                       <SortableLessonRow
                         key={lesson.id}
                         lesson={lesson}
+                        assignments={assignmentsByLesson[lesson.id] || []}
                         onView={handleViewLesson}
                         onEdit={handleEditLesson}
                         onDelete={handleDeleteLesson}
@@ -444,33 +602,105 @@ export default function CourseManagement() {
                   <TableHead>Descripción</TableHead>
                   <TableHead>Nivel</TableHead>
                   <TableHead>Obligatoria</TableHead>
-                  <TableHead>Notas</TableHead>
-                  <TableHead>Ejercicios</TableHead>
+                  <TableHead>Empresa</TableHead>
+                  <TableHead className="text-center">Notas</TableHead>
+                  <TableHead className="text-center">Ejercicios</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredLessons.map((lesson) => (
-                  <TableRow key={lesson.id}>
-                    <TableCell className="font-medium max-w-xs truncate">{lesson.titulo}</TableCell>
-                    <TableCell className="max-w-xs truncate">{lesson.descripcion}</TableCell>
+                {filteredLessons.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="h-32 text-center">
+                      <div className="flex flex-col items-center justify-center text-muted-foreground">
+                        <SearchX className="w-10 h-10 mb-3 opacity-40" />
+                        <p className="text-sm font-medium">No se encontraron lecciones</p>
+                        <p className="text-xs mt-1">Intenta con otros filtros o crea una nueva lección</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                filteredLessons.map((lesson) => {
+                  const assigns = assignmentsByLesson[lesson.id] || [];
+                  const hasAssignments = assigns.length > 0;
+                  const visibleBadges = assigns.slice(0, MAX_VISIBLE_BADGES);
+                  const overflowCount = assigns.length - MAX_VISIBLE_BADGES;
+                  const tooltipText = buildAssignedTooltip(assigns);
+                  return (
+                  <TableRow
+                    key={lesson.id}
+                    className={`transition-colors ${hasAssignments ? "bg-primary/[0.02] hover:bg-primary/[0.04]" : "hover:bg-muted/50"}`}
+                  >
+                    <TableCell className="font-medium max-w-[220px]">
+                      <div className="flex items-center gap-1.5">
+                        {hasAssignments && <Lock className="w-3.5 h-3.5 text-primary/60 shrink-0" />}
+                        <span className="truncate block">{lesson.titulo}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="max-w-[180px]">
+                      <span className="truncate block text-muted-foreground text-sm">{lesson.descripcion}</span>
+                    </TableCell>
                     <TableCell>
                       <Badge className={levelColors[lesson.nivelAsociado as keyof typeof levelColors]}>{lesson.nivelAsociado}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={lesson.obligatoria ? "default" : "secondary"}>{lesson.obligatoria ? "Sí" : "No"}</Badge>
+                      <Badge variant={lesson.obligatoria ? "default" : "secondary"} className="text-xs">{lesson.obligatoria ? "Sí" : "No"}</Badge>
                     </TableCell>
-                    <TableCell>{lesson.notas.length}</TableCell>
-                    <TableCell>{lesson.ejercicios.length}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="outline" size="sm" onClick={() => handleViewLesson(lesson)}><Eye className="w-4 h-4" /></Button>
-                        <Button variant="outline" size="sm" onClick={() => handleEditLesson(lesson)}><Edit className="w-4 h-4" /></Button>
-                        <Button variant="outline" size="sm" onClick={() => handleDeleteLesson(lesson.id)} className="text-destructive hover:text-destructive"><Trash2 className="w-4 h-4" /></Button>
+                    <TableCell>
+                      <div className="flex flex-col gap-0.5 max-w-[240px]">
+                        {assigns.length === 0 ? (
+                          <span className="text-muted-foreground text-sm italic">Público</span>
+                        ) : (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="flex flex-wrap gap-1 cursor-default">
+                                  {visibleBadges.map((a, i) => (
+                                    <Badge key={i} variant="outline" className="text-xs whitespace-nowrap gap-1">
+                                      <Building2 className="w-3 h-3" />
+                                      {a.companyName}{a.areaName ? `: ${a.areaName}` : ""}
+                                    </Badge>
+                                  ))}
+                                  {overflowCount > 0 && (
+                                    <Badge variant="secondary" className="text-xs">+{overflowCount} más</Badge>
+                                  )}
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent side="left" className="max-w-xs whitespace-pre-line">
+                                <p className="text-xs">{tooltipText}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
                       </div>
                     </TableCell>
+                    <TableCell className="w-[70px] text-center text-sm tabular-nums">{lesson.notas.length}</TableCell>
+                    <TableCell className="w-[80px] text-center text-sm tabular-nums">{lesson.ejercicios.length}</TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                            <MoreHorizontal className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleViewLesson(lesson)}>
+                            <Eye className="w-4 h-4 mr-2" /> Ver detalle
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleEditLesson(lesson)}>
+                            <Edit className="w-4 h-4 mr-2" /> Editar
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => handleDeleteLesson(lesson.id)} className="text-destructive focus:text-destructive">
+                            <Trash2 className="w-4 h-4 mr-2" /> Eliminar
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })
+                )}
               </TableBody>
             </Table>
           )}
@@ -482,6 +712,8 @@ export default function CourseManagement() {
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveLesson}
         lesson={editingLesson}
+        companies={companies}
+        initialAssignments={editingLesson ? (assignmentsByLesson[editingLesson.id] || []) : []}
       />
 
       <DeleteConfirmationDialog

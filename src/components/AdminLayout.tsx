@@ -7,6 +7,7 @@ import {
   MessageSquare,
   BarChart3,
   CreditCard,
+  Building2,
   LogOut
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ const menuItems = [
   { id: "conversations", title: "Conversaciones con IA", icon: MessageSquare },
   { id: "plans", title: "Planes", icon: CreditCard },
   { id: "subscriptions", title: "Suscripciones", icon: BarChart3 },
+  { id: "companies", title: "Empresas", icon: Building2 },
 ];
 export default function AdminLayout() {
   const navigate = useNavigate();
@@ -101,7 +103,7 @@ export default function AdminLayout() {
                     <SidebarMenuItem key={item.id}>
                       <SidebarMenuButton
                         onClick={() => handleNavigate(item.id)}
-                        className={`w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent ${location.pathname === `/${item.id}` || (item.id === "dashboard" && location.pathname === "/")
+                        className={`w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent ${location.pathname === `/${item.id}` || location.pathname.startsWith(`/${item.id}/`) || (item.id === "dashboard" && location.pathname === "/")
                           ? "bg-sidebar-accent"
                           : ""
                           }`}
