@@ -22,6 +22,7 @@ import QuizManagement from "@/components/QuizManagement";
 import ConversationManagement from "@/components/ConversationManagement";
 import PlansManagement from "@/components/PlansManagement";
 import SubscriptionsManagement from "@/components/SubscriptionsManagement";
+import CompanyManagement from "@/components/CompanyManagement";
 
 const queryClient = new QueryClient();
 import { AuthProvider, useAuth } from "@/context/AuthContext";
@@ -65,6 +66,7 @@ const App = () => (
               <Route path="conversations" element={<ConversationManagement />} />
               <Route path="plans" element={<PlansManagement />} />
               <Route path="subscriptions" element={<SubscriptionsManagement />} />
+              <Route path="companies" element={<CompanyManagement />} />
             </Route>
 
             <Route path="*" element={<NotFound />} />

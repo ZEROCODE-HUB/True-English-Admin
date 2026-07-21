@@ -10,19 +10,25 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import type { User } from "./UserManagement";
+import type { Company, Area } from "@/types/db";
 import { supabase } from "@/lib/supabase";
+
 interface UserFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (userData: Omit<User, 'id' | 'fechaRegistro'>) => void;
   user?: User | null;
+  initialCompanyId?: string | null;
+  initialAreaId?: string | null;
 }
 const interestOptions = ["Conversación", "Gramática", "Vocabulario", "Pronunciación", "Escucha", "Lectura", "Escritura", "Cultura", "Negocios", "Viajes"];
 export default function UserFormModal({
   isOpen,
   onClose,
   onSave,
-  user
+  user,
+  initialCompanyId,
+  initialAreaId,
 }: UserFormModalProps) {
   const normalizeTipo = (t: unknown) => {
     if (!t) return "Alumno";
@@ -39,10 +45,14 @@ export default function UserFormModal({
     nivelActual: "A1",
     estado: "activo" as "activo" | "inactivo",
     tipoUsuario: "Alumno" as "Alumno" | "Externo",
-    password: ""
+    password: "",
+    companyId: "__none__" as string,
+    areaId: "__none__" as string,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [areas, setAreas] = useState<Area[]>([]);
   useEffect(() => {
     if (user) {
       setFormData({
@@ -55,7 +65,9 @@ export default function UserFormModal({
         nivelActual: user.nivelActual,
         estado: user.estado as "activo" | "inactivo",
         tipoUsuario: normalizeTipo(user.tipoUsuario),
-        password: ""
+        password: "",
+        companyId: initialCompanyId || "__none__",
+        areaId: initialAreaId || "__none__",
       });
     } else {
       setFormData({
@@ -68,11 +80,30 @@ export default function UserFormModal({
         nivelActual: "A1",
         estado: "activo",
         tipoUsuario: "Alumno",
-        password: ""
+        password: "",
+        companyId: "__none__",
+        areaId: "__none__",
       });
     }
     setErrors({});
-  }, [user, isOpen]);
+  }, [user, isOpen, initialCompanyId, initialAreaId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    supabase.from("companies").select("id, name, slug, active").eq("active", true).order("name").then(({ data }) => {
+      setCompanies((data as Company[]) || []);
+    });
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (formData.companyId && formData.companyId !== "__none__") {
+      supabase.from("areas").select("id, company_id, name, active").eq("company_id", formData.companyId).eq("active", true).order("name").then(({ data }) => {
+        setAreas((data as Area[]) || []);
+      });
+    } else {
+      setAreas([]);
+    }
+  }, [formData.companyId]);
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
     if (!formData.nombre.trim()) newErrors.nombre = "El nombre es requerido";
@@ -146,8 +177,10 @@ export default function UserFormModal({
         nivelActual: String(formData.nivelActual).toUpperCase(),
         estado: String(formData.estado),
         tipoUsuario: normalizeTipo(formData.tipoUsuario),
-        password: formData.password
-      } as unknown as Omit<User, 'id' | 'fechaRegistro'> & { password?: string };
+        password: formData.password,
+        companyId: formData.companyId === "__none__" ? null : formData.companyId,
+        areaId: formData.areaId === "__none__" ? null : formData.areaId,
+      } as unknown as Omit<User, 'id' | 'fechaRegistro'> & { password?: string; companyId?: string | null; areaId?: string | null };
 
       await onSave(out);
       onClose();
@@ -273,6 +306,37 @@ export default function UserFormModal({
               <option value="inactivo">Inactivo</option>
             </select>
           </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Empresa</Label>
+            <select
+              value={formData.companyId}
+              onChange={(e) => setFormData(prev => ({ ...prev, companyId: e.target.value, areaId: "__none__" }))}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="__none__">Sin empresa</option>
+              {companies.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          {formData.companyId !== "__none__" && (
+            <div className="space-y-2">
+              <Label>Area</Label>
+              <select
+                value={formData.areaId}
+                onChange={(e) => setFormData(prev => ({ ...prev, areaId: e.target.value }))}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="__none__">Sin area especifica</option>
+                {areas.map(a => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {user && user.codigoInvitacion && <div className="space-y-2">

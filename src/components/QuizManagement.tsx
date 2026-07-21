@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Plus, Edit, Trash2, Search, ToggleLeft, ToggleRight, Eye } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Plus, Edit, Trash2, Search, ToggleLeft, ToggleRight, Eye, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +14,7 @@ import CreateChallengeQuestionModal from "./CreateChallengeQuestionModal";
 import CreateChallengeModal from "./CreateChallengeModal";
 import { useToast } from "@/hooks/use-toast";
 import quizzes from "@/lib/quizzes";
+import { supabase } from "@/lib/supabase";
 export interface OnboardingQuestion {
   id: string;
   pregunta: string;
@@ -72,6 +73,13 @@ export interface ChallengeQuestion {
   activa: boolean;
 }
 
+interface AssignmentInfo {
+  companyId: string;
+  companyName: string;
+  areaId: string | null;
+  areaName: string | null;
+}
+
 export default function QuizManagement() {
   const [onboardingQuestions, setOnboardingQuestions] = useState<OnboardingQuestion[]>([]);
   const [levelQuestions, setLevelQuestions] = useState<LevelQuestion[]>([]);
@@ -79,6 +87,7 @@ export default function QuizManagement() {
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [challengeQuestions, setChallengeQuestions] = useState<ChallengeQuestion[]>([]);
   const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [assignmentsByLesson, setAssignmentsByLesson] = useState<Record<string, AssignmentInfo[]>>({});
   // Debug / raw response
   const [onboardingRawData, setOnboardingRawData] = useState<any[]>([]);
   const [showOnboardingRaw, setShowOnboardingRaw] = useState(false);
@@ -158,7 +167,7 @@ export default function QuizManagement() {
         titulo: c.title ?? c.titulo ?? '',
         nivel: c.level ?? c.nivel ?? 'A1',
         lessonId: c.lesson_id ?? c.lessonId ?? '',
-        lessonTitle: c.lesson_id ? '' : (c.lesson_title ?? ''),
+        lessonTitle: c.lesson_title ?? '',
         activo: typeof c.active === 'boolean' ? c.active : (c.activo ?? true),
         points: (c.points ?? c.puntos ?? 0) as number
       }));
@@ -270,6 +279,26 @@ export default function QuizManagement() {
       console.error('failed to load lesson counts', err);
     }
   };
+
+  const fetchAssignments = useCallback(async (lessonIds: string[]) => {
+    if (lessonIds.length === 0) { setAssignmentsByLesson({}); return; }
+    const { data } = await supabase
+      .from("lesson_assignments")
+      .select("lesson_id, company_id, area_id, companies!company_id(name), areas!area_id(name)")
+      .in("lesson_id", lessonIds);
+    const map: Record<string, AssignmentInfo[]> = {};
+    (data || []).forEach((r: any) => {
+      const lid = r.lesson_id;
+      if (!map[lid]) map[lid] = [];
+      map[lid].push({
+        companyId: r.company_id,
+        companyName: r.companies?.name ?? "—",
+        areaId: r.area_id,
+        areaName: r.areas?.name ?? null,
+      });
+    });
+    setAssignmentsByLesson(map);
+  }, []);
 
   // Level selection state
   const [selectedLevel, setSelectedLevel] = useState<"A1" | "A2" | "B1" | "B2" | "C1" | "C2" | null>(null);
@@ -383,7 +412,7 @@ export default function QuizManagement() {
           titulo: c.title ?? c.titulo ?? '',
           nivel: c.level ?? c.nivel ?? 'A1',
           lessonId: c.lesson_id ?? c.lessonId ?? '',
-          lessonTitle: c.lesson_id ? '' : (c.lesson_title ?? ''),
+          lessonTitle: c.lesson_title ?? '',
           activo: typeof c.active === 'boolean' ? c.active : (c.activo ?? true),
           points: (c.points ?? c.puntos ?? 0) as number
         }));
@@ -421,6 +450,21 @@ export default function QuizManagement() {
     setInitialChallengeParam(null);
   }, [challenges, initialChallengeParam]);
 
+  // Resolve lesson titles for challenges once lessons are loaded
+  useEffect(() => {
+    if (lessons.length === 0 || challenges.length === 0) return;
+    const updated = challenges.map(c => {
+      if (c.lessonId && !c.lessonTitle) {
+        const found = lessons.find(l => l.id === c.lessonId);
+        return { ...c, lessonTitle: found?.titulo ?? "Lección eliminada" };
+      }
+      return c;
+    });
+    if (JSON.stringify(updated) !== JSON.stringify(challenges)) {
+      setChallenges(updated);
+    }
+  }, [lessons, challenges]);
+
   useEffect(() => {
     // Load lessons from DB
     let mounted = true;
@@ -436,6 +480,7 @@ export default function QuizManagement() {
         setLessons(mapped);
         // load lesson counts so cards show numbers immediately
         loadLessonCounts();
+        fetchAssignments(mapped.map((l: any) => l.id));
       } catch (err) {
         console.error('failed to load lessons', err);
       }
@@ -980,17 +1025,35 @@ export default function QuizManagement() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredLessons.map(lesson => <Card key={lesson.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => { setSelectedLesson(lesson); setQueryParam('lesson', lesson.id); }}>
-                    <CardContent className="p-6">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold text-lg">{lesson.titulo}</h3>
-                        <Badge variant="outline">{lesson.nivel}</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {(lessonCountsByLesson[lesson.id] || 0)} preguntas
-                      </p>
-                    </CardContent>
-                  </Card>)}
+                  {filteredLessons.map(lesson => {
+                    const assigns = assignmentsByLesson[lesson.id] || [];
+                    const hasAssignments = assigns.length > 0;
+                    return (
+                      <Card
+                        key={lesson.id}
+                        className={`cursor-pointer transition-shadow ${
+                          hasAssignments
+                            ? "bg-primary/[0.02] hover:bg-primary/[0.04] hover:shadow-md"
+                            : "hover:shadow-md"
+                        }`}
+                        onClick={() => { setSelectedLesson(lesson); setQueryParam('lesson', lesson.id); }}
+                      >
+                        <CardContent className="p-6">
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="font-semibold text-lg flex items-center gap-1.5">
+                              {hasAssignments && <Lock className="w-3.5 h-3.5 text-primary/60 shrink-0" />}
+                              {lesson.titulo}
+                            </h3>
+                            <Badge variant="outline">{lesson.nivel}</Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {(lessonCountsByLesson[lesson.id] || 0)} preguntas
+                            {hasAssignments && <span className="ml-2 italic">Privado</span>}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -1135,7 +1198,18 @@ export default function QuizManagement() {
                         <TableCell>
                           <div className="text-sm">{(challenge as any).points ?? 0} pts</div>
                         </TableCell>
-                        <TableCell>{challenge.lessonTitle}</TableCell>
+                        <TableCell>
+                          {challenge.lessonId ? (
+                            <span className="flex items-center gap-1.5">
+                              {(assignmentsByLesson[challenge.lessonId] || []).length > 0 && (
+                                <Lock className="w-3.5 h-3.5 text-primary/60 shrink-0" />
+                              )}
+                              {challenge.lessonTitle || "Sin título"}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground italic">—</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <Button
                             variant="ghost"
@@ -1194,8 +1268,14 @@ export default function QuizManagement() {
                     {selectedChallenge.titulo}
                     <Badge variant="outline">{selectedChallenge.nivel}</Badge>
                   </CardTitle>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Lección: {selectedChallenge.lessonTitle}
+                  <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1.5">
+                    Lección: {selectedChallenge.lessonTitle || "Sin título"}
+                    {selectedChallenge.lessonId && (assignmentsByLesson[selectedChallenge.lessonId] || []).length > 0 && (
+                      <>
+                        <Lock className="w-3 h-3 text-primary/60" />
+                        <span className="italic">Privado</span>
+                      </>
+                    )}
                   </p>
                 </div>
                 <Button variant="outline" onClick={() => { setSelectedChallenge(null); setQueryParam('challenge', null); }}>
