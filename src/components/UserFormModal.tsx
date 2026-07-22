@@ -1,14 +1,12 @@
 import { useState, useEffect } from "react";
 import { format } from "date-fns";
-import { CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Calendar } from "@/components/ui/calendar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
 import type { User } from "./UserManagement";
 import type { Company, Area } from "@/types/db";
 import { supabase } from "@/lib/supabase";
@@ -35,6 +33,12 @@ export default function UserFormModal({
     const s = String(t).toLowerCase();
     return s === "externo" ? "Externo" : "Alumno";
   };
+  const normalizeNivel = (n: unknown): string => {
+    if (!n) return "__none__";
+    const s = String(n).toUpperCase();
+    if (s === "NULL" || s === "NONE" || s === "") return "__none__";
+    return s;
+  };
   const [formData, setFormData] = useState({
     nombre: "",
     apellido: "",
@@ -53,17 +57,39 @@ export default function UserFormModal({
   const [submitting, setSubmitting] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
+  const { toast } = useToast();
+
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: currentYear - 1939 }, (_, i) => currentYear - i);
+  const months = [
+    { value: 0, label: "Enero" }, { value: 1, label: "Febrero" }, { value: 2, label: "Marzo" },
+    { value: 3, label: "Abril" }, { value: 4, label: "Mayo" }, { value: 5, label: "Junio" },
+    { value: 6, label: "Julio" }, { value: 7, label: "Agosto" }, { value: 8, label: "Septiembre" },
+    { value: 9, label: "Octubre" }, { value: 10, label: "Noviembre" }, { value: 11, label: "Diciembre" },
+  ];
+
+  const getDayCount = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
+
+  const parseInitialDate = (val: unknown): Date | undefined => {
+    if (!val) return undefined;
+    if (val instanceof Date && !isNaN(val.getTime())) return val;
+    if (typeof val === 'string') {
+      const d = new Date(val);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return undefined;
+  };
   useEffect(() => {
     if (user) {
       setFormData({
-        nombre: user.nombre,
-        apellido: user.apellido,
-        email: user.email,
-        celular: user.celular,
-        fechaNacimiento: user.fechaNacimiento as any,
-        intereses: user.intereses,
-        nivelActual: user.nivelActual,
-        estado: user.estado as "activo" | "inactivo",
+        nombre: user.nombre || "",
+        apellido: user.apellido || "",
+        email: user.email || "",
+        celular: user.celular || "",
+        fechaNacimiento: parseInitialDate(user.fechaNacimiento),
+        intereses: user.intereses || [],
+        nivelActual: normalizeNivel(user.nivelActual),
+        estado: (user.estado as "activo" | "inactivo") || "activo",
         tipoUsuario: normalizeTipo(user.tipoUsuario),
         password: "",
         companyId: initialCompanyId || "__none__",
@@ -106,59 +132,70 @@ export default function UserFormModal({
   }, [formData.companyId]);
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
-    if (!formData.nombre.trim()) newErrors.nombre = "El nombre es requerido";
-    if (!formData.apellido.trim()) newErrors.apellido = "El apellido es requerido";
-    if (!formData.email.trim()) newErrors.email = "El email es requerido";
-    if (!formData.celular.trim()) newErrors.celular = "El celular es requerido";
+    if (!(formData.nombre || '').trim()) newErrors.nombre = "El nombre es requerido";
+    if (!(formData.apellido || '').trim()) newErrors.apellido = "El apellido es requerido";
+    if (!(formData.email || '').trim()) newErrors.email = "El email es requerido";
+    if (!(formData.celular || '').trim()) newErrors.celular = "El celular es requerido";
     if (!formData.fechaNacimiento) newErrors.fechaNacimiento = "La fecha de nacimiento es requerida";
-    if (!user && !formData.password.trim()) newErrors.password = "La contraseña es requerida";
+    if (!user && !(formData.password || '').trim()) newErrors.password = "La contraseña es requerida";
 
-    // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (formData.email && !emailRegex.test(formData.email)) {
       newErrors.email = "Formato de email inválido";
     }
-    // Phone simple validation (allow + and digits, min 7 chars)
     const phoneRegex = /^[+]?([0-9\s\-()]){7,}$/;
     if (formData.celular && !phoneRegex.test(formData.celular)) {
       newErrors.celular = "Formato de celular inválido";
     }
 
-    // nivelActual must be one of allowed values
-    const allowedNiveles = ["A1", "A2", "B1", "B2", "C1", "C2"];
+    const allowedNiveles = ["A1", "A2", "B1", "B2", "C1", "C2", "__none__"];
     if (formData.nivelActual && !allowedNiveles.includes(String(formData.nivelActual))) {
       newErrors.nivelActual = "Nivel inválido";
     }
 
-    // tipoUsuario must be Alumno or Externo
     if (formData.tipoUsuario && !["Alumno", "Externo"].includes(String(formData.tipoUsuario))) {
       newErrors.tipoUsuario = "Tipo de usuario inválido";
     }
+
+    if (Object.keys(newErrors).length > 0) {
+      console.error('[UserFormModal] Validation errors:', newErrors, 'formData:', JSON.parse(JSON.stringify(formData)));
+    }
+
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return newErrors;
   };
+
+  const fieldLabels: Record<string, string> = {
+    nombre: "Nombre", apellido: "Apellido", email: "Email",
+    celular: "Celular", fechaNacimiento: "Fecha de nacimiento", password: "Contraseña",
+    nivelActual: "Nivel", tipoUsuario: "Tipo de usuario",
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitting) return;
-    if (!validateForm()) return;
+    const formErrors = validateForm();
+    if (Object.keys(formErrors).length > 0) {
+      const fields = Object.keys(formErrors).map(k => fieldLabels[k] || k).join(", ");
+      toast({ title: "Campos con errores", description: fields, variant: "destructive" });
+      return;
+    }
     setSubmitting(true);
     try {
-      const email = String(formData.email).trim();
-      // Check uniqueness in profiles
+      const email = String(formData.email || '').trim();
       const { data: existing, error } = await supabase.from('profiles').select('id').ilike('email', email).limit(1);
       if (error) {
         setErrors({ email: 'Error comprobando email' });
+        toast({ title: "Error", description: "No se pudo verificar el email.", variant: "destructive" });
         return;
       }
 
       if (!user) {
-        // creating: if any existing profile, prevent
         if (existing && existing.length > 0) {
           setErrors(prev => ({ ...prev, email: 'El email ya está registrado' }));
           return;
         }
       } else {
-        // editing: if email changed and belongs to another user, prevent
         const normalizedExisting = existing && existing.length > 0 ? existing[0] : null;
         if (normalizedExisting && String(normalizedExisting.id) !== String(user.id)) {
           setErrors(prev => ({ ...prev, email: 'Otro usuario ya usa ese email' }));
@@ -166,16 +203,15 @@ export default function UserFormModal({
         }
       }
 
-      // normalize fields before sending back
       const out = {
-        nombre: String(formData.nombre).trim(),
-        apellido: String(formData.apellido).trim(),
+        nombre: String(formData.nombre || '').trim(),
+        apellido: String(formData.apellido || '').trim(),
         email: email,
-        celular: String(formData.celular).trim(),
+        celular: String(formData.celular || '').trim(),
         fechaNacimiento: formData.fechaNacimiento,
         intereses: formData.intereses,
-        nivelActual: String(formData.nivelActual).toUpperCase(),
-        estado: String(formData.estado),
+        nivelActual: formData.nivelActual === "__none__" ? null : String(formData.nivelActual || '').toUpperCase(),
+        estado: String(formData.estado || 'activo'),
         tipoUsuario: normalizeTipo(formData.tipoUsuario),
         password: formData.password,
         companyId: formData.companyId === "__none__" ? null : formData.companyId,
@@ -184,6 +220,9 @@ export default function UserFormModal({
 
       await onSave(out);
       onClose();
+    } catch (err) {
+      console.error('Error guardando usuario', err);
+      toast({ title: "Error", description: "Ocurrió un error al guardar. Intenta de nuevo.", variant: "destructive" });
     } finally {
       setSubmitting(false);
     }
@@ -250,20 +289,81 @@ export default function UserFormModal({
 
         <div className="space-y-2">
           <Label>Fecha de Nacimiento *</Label>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !formData.fechaNacimiento && "text-muted-foreground", errors.fechaNacimiento && "border-destructive")}>
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {formData.fechaNacimiento ? format(formData.fechaNacimiento, "dd/MM/yyyy") : <span>Selecciona una fecha</span>}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar mode="single" selected={formData.fechaNacimiento} onSelect={date => setFormData(prev => ({
-                ...prev,
-                fechaNacimiento: date
-              }))} disabled={date => date > new Date() || date < new Date("1900-01-01")} initialFocus className="pointer-events-auto" />
-            </PopoverContent>
-          </Popover>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <Label className="text-xs text-muted-foreground">Año</Label>
+              <Select
+                value={formData.fechaNacimiento ? String(formData.fechaNacimiento.getFullYear()) : ""}
+                onValueChange={(val) => {
+                  const year = parseInt(val);
+                  const prev = formData.fechaNacimiento || new Date(2000, 0, 1);
+                  const month = prev.getMonth();
+                  const day = Math.min(prev.getDate(), getDayCount(year, month));
+                  setFormData(prev => ({ ...prev, fechaNacimiento: new Date(year, month, day) }));
+                  setErrors(prev => ({ ...prev, fechaNacimiento: "" }));
+                }}
+              >
+                <SelectTrigger className={errors.fechaNacimiento ? "border-destructive" : ""}>
+                  <SelectValue placeholder="Año" />
+                </SelectTrigger>
+                <SelectContent className="max-h-60">
+                  {years.map(y => (
+                    <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Mes</Label>
+              <Select
+                value={formData.fechaNacimiento ? String(formData.fechaNacimiento.getMonth()) : ""}
+                onValueChange={(val) => {
+                  const month = parseInt(val);
+                  const prev = formData.fechaNacimiento || new Date(2000, 0, 1);
+                  const year = prev.getFullYear();
+                  const day = Math.min(prev.getDate(), getDayCount(year, month));
+                  setFormData(prev => ({ ...prev, fechaNacimiento: new Date(year, month, day) }));
+                  setErrors(prev => ({ ...prev, fechaNacimiento: "" }));
+                }}
+              >
+                <SelectTrigger className={errors.fechaNacimiento ? "border-destructive" : ""}>
+                  <SelectValue placeholder="Mes" />
+                </SelectTrigger>
+                <SelectContent>
+                  {months.map(m => (
+                    <SelectItem key={m.value} value={String(m.value)}>{m.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Día</Label>
+              <Select
+                value={formData.fechaNacimiento ? String(formData.fechaNacimiento.getDate()) : ""}
+                onValueChange={(val) => {
+                  const day = parseInt(val);
+                  const prev = formData.fechaNacimiento || new Date(2000, 0, 1);
+                  setFormData(prev => ({ ...prev, fechaNacimiento: new Date(prev.getFullYear(), prev.getMonth(), day) }));
+                  setErrors(prev => ({ ...prev, fechaNacimiento: "" }));
+                }}
+              >
+                <SelectTrigger className={errors.fechaNacimiento ? "border-destructive" : ""}>
+                  <SelectValue placeholder="Día" />
+                </SelectTrigger>
+                <SelectContent className="max-h-60">
+                  {(formData.fechaNacimiento
+                    ? Array.from({ length: getDayCount(formData.fechaNacimiento.getFullYear(), formData.fechaNacimiento.getMonth()) }, (_, i) => i + 1)
+                    : Array.from({ length: 31 }, (_, i) => i + 1)
+                  ).map(d => (
+                    <SelectItem key={d} value={String(d)}>{d}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {formData.fechaNacimiento && (
+            <p className="text-sm text-muted-foreground">{format(formData.fechaNacimiento, "dd/MM/yyyy")}</p>
+          )}
           {errors.fechaNacimiento && <p className="text-sm text-destructive">{errors.fechaNacimiento}</p>}
         </div>
 
@@ -276,6 +376,7 @@ export default function UserFormModal({
               ...prev,
               nivelActual: e.target.value
             }))} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+              <option value="__none__">Sin nivel</option>
               <option value="A1">A1 - Principiante</option>
               <option value="A2">A2 - Elemental</option>
               <option value="B1">B1 - Intermedio</option>

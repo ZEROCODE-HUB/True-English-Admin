@@ -1,4 +1,5 @@
-import { useEffect, useState, useRef, lazy, Suspense } from "react";
+import { useEffect, useState, useRef, lazy, Suspense, useCallback } from "react";
+import { useDebounce } from "@/hooks/useDebounce";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +13,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Switch } from "@/components/ui/switch";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, Plus, Edit, Trash2, Eye, Filter, GripVertical, ArrowUpDown } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { CalendarIcon, Plus, Edit, Trash2, Eye, Filter, GripVertical, ArrowUpDown, Search } from "lucide-react";
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious, PaginationEllipsis } from "@/components/ui/pagination";
 import {
   DndContext,
   closestCenter,
@@ -118,7 +121,8 @@ const SortableTopicRow = ({ topic }: SortableTopicRowProps) => {
 const ConversationManagement = () => {
   const [topics, setTopics] = useState<ConversationTopic[]>([]);
   const [logs, setLogs] = useState<ConversationLog[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [topicsLoading, setTopicsLoading] = useState(true);
+  const [logsLoading, setLogsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'topics' | 'logs'>('topics');
   const [selectedTopic, setSelectedTopic] = useState<ConversationTopic | null>(null);
   const [selectedLog, setSelectedLog] = useState<ConversationLog | null>(null);
@@ -145,6 +149,21 @@ const ConversationManagement = () => {
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const { toast } = useToast();
 
+  const [topicSearch, setTopicSearch] = useState("");
+  const [topicLevelFilter, setTopicLevelFilter] = useState("all");
+  const [topicSortBy, setTopicSortBy] = useState("sort_order");
+  const [topicPage, setTopicPage] = useState(1);
+  const [topicCount, setTopicCount] = useState(0);
+  const [logSortBy, setLogSortBy] = useState("newest");
+  const [logPage, setLogPage] = useState(1);
+  const [logCount, setLogCount] = useState(0);
+
+  const TOPICS_PER_PAGE = 9;
+  const LOGS_PER_PAGE = 10;
+
+  const debouncedTopicSearch = useDebounce(topicSearch, 300);
+  const debouncedUserFilter = useDebounce(userFilter, 300);
+
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -164,31 +183,43 @@ const ConversationManagement = () => {
   };
 
   useEffect(() => {
-    // Load topics and conversation logs from Supabase
+    const controller = new AbortController();
     const load = async () => {
-      setLoading(true);
+      setTopicsLoading(true);
       try {
-        await loadTopics();
-      } catch (err) {
+        await fetchTopics(controller.signal);
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
         console.error('Error cargando datos de conversaciones IA', err);
         toast({ title: 'Error', description: 'No se pudieron cargar los datos de conversaciones desde la base.' });
       } finally {
-        setLoading(false);
+        setTopicsLoading(false);
       }
     };
-
     load();
-  }, [toast]);
+    return () => controller.abort();
+  }, [debouncedTopicSearch, topicLevelFilter, topicSortBy, topicPage]);
 
-  // Carga topics con su vocabulario
-  const loadTopics = async () => {
-    const { data, error } = await supabase
-      .from('ai_topics')
-      .select(`id, title, emoji, level, prompt, description, status, points, sort_order, ai_topic_vocab(id, word, definition, part_of_speech)`)
-      .order('sort_order', { ascending: true });
+  useEffect(() => {
+    if (activeTab !== 'logs') return;
+    const controller = new AbortController();
+    const load = async () => {
+      setLogsLoading(true);
+      try {
+        await fetchLogs(controller.signal);
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+        console.error('Error cargando logs', err);
+        toast({ title: 'Error', description: 'No se pudieron cargar los logs de conversaciones.' });
+      } finally {
+        setLogsLoading(false);
+      }
+    };
+    load();
+    return () => controller.abort();
+  }, [debouncedUserFilter, levelFilter, dateFilter, logSortBy, logPage, activeTab]);
 
-    if (error) throw error;
-
+  const mapTopicsData = (data: any[]) => {
     const mapped: ConversationTopic[] = (data || []).map((t: any) => ({
       id: t.id,
       titulo: t.title,
@@ -199,15 +230,45 @@ const ConversationManagement = () => {
       activo: t.status === 'active',
       emoji: t.emoji || ''
     }));
-
-    // map points and sort_order
     mapped.forEach((m, idx) => {
       const raw = ((data || [])[idx] || {}) as any;
       (m as any).points = (raw.points ?? raw.puntos ?? 0) as number;
       (m as any).sort_order = (raw.sort_order ?? 0) as number;
     });
+    return mapped;
+  };
 
-    setTopics(mapped);
+  const fetchTopics = async (signal?: AbortSignal) => {
+    let query = supabase
+      .from('ai_topics')
+      .select(`id, title, emoji, level, prompt, description, status, points, sort_order, ai_topic_vocab(id, word, definition, part_of_speech)`, { count: 'exact' });
+
+    if (debouncedTopicSearch) {
+      query = query.or(`title.ilike.%${debouncedTopicSearch}%,description.ilike.%${debouncedTopicSearch}%`);
+    }
+    if (topicLevelFilter !== 'all') {
+      query = query.eq('level', topicLevelFilter);
+    }
+
+    switch (topicSortBy) {
+      case 'newest': query = query.order('created_at', { ascending: false }); break;
+      case 'oldest': query = query.order('created_at', { ascending: true }); break;
+      case 'az': query = query.order('title', { ascending: true }); break;
+      case 'za': query = query.order('title', { ascending: false }); break;
+      default: query = query.order('sort_order', { ascending: true });
+    }
+
+    const from = (topicPage - 1) * TOPICS_PER_PAGE;
+    const to = from + TOPICS_PER_PAGE - 1;
+    query = query.range(from, to);
+
+    if (signal) query = query.abortSignal(signal);
+
+    const { data, error, count } = await query;
+    if (error) throw error;
+
+    setTopics(mapTopicsData(data || []));
+    setTopicCount(count || 0);
   };
 
   const handleEnterReorderMode = () => {
@@ -240,7 +301,7 @@ const ConversationManagement = () => {
           supabase.from('ai_topics').update({ sort_order: i + 1 }).eq('id', t.id)
         )
       );
-      await loadTopics();
+      await fetchTopics();
       setReorderMode(false);
       setReorderedTopics([]);
       toast({ title: 'Orden guardado', description: 'El orden de los temas fue actualizado.' });
@@ -255,44 +316,60 @@ const ConversationManagement = () => {
 
   const handleTabChange = (value: string) => {
     setActiveTab(value as 'topics' | 'logs');
-    if (value === 'logs') {
-      // load logs lazily when user opens the Logs tab
-      loadLogs().catch(err => {
-        console.error('Error cargando logs', err);
-        toast({ title: 'Error', description: 'No se pudieron cargar los logs de conversaciones.' });
-      });
-    }
   };
 
-  // Carga conversaciones (logs) con profile, topic, mensajes y puntuaciones
-  const loadLogs = async () => {
-    // 1) obtener conversaciones recientes
-    const { data: convs, error: convsError } = await supabase
+  const fetchLogs = async (signal?: AbortSignal) => {
+    let baseQuery = supabase
       .from('ai_conversations')
-      // include a small projection of ai_messages so we can filter conversations
-      // that already have at least one message (i.e. started conversations)
-      .select('id, topic_id, profile_id, level, started_at, ai_messages(id)')
-      .order('started_at', { ascending: false })
-      .limit(100);
+      .select('id, topic_id, profile_id, level, started_at', { count: 'exact' });
 
+    if (levelFilter !== 'all') {
+      baseQuery = baseQuery.eq('level', levelFilter);
+    }
+
+    if (dateFilter) {
+      const dayStr = format(dateFilter, 'yyyy-MM-dd');
+      baseQuery = baseQuery.gte('started_at', `${dayStr}T00:00:00`).lt('started_at', `${dayStr}T23:59:59`);
+    }
+
+    if (logSortBy === 'newest' || logSortBy === 'highest' || logSortBy === 'lowest') {
+      baseQuery = baseQuery.order('started_at', { ascending: false });
+    } else {
+      baseQuery = baseQuery.order('started_at', { ascending: true });
+    }
+
+    const from = (logPage - 1) * LOGS_PER_PAGE;
+    const to = from + LOGS_PER_PAGE - 1;
+    baseQuery = baseQuery.range(from, to);
+    if (signal) baseQuery = baseQuery.abortSignal(signal);
+
+    const { data: convs, error: convsError, count } = await baseQuery;
     if (convsError) throw convsError;
 
-    // keep only conversations that have at least one message (i.e. started)
     let convList: any[] = convs || [];
-    convList = convList.filter((c: any) => c.ai_messages && c.ai_messages.length > 0);
 
     const profileIds = Array.from(new Set(convList.map((c: any) => c.profile_id).filter(Boolean)));
     const topicIds = Array.from(new Set(convList.map((c: any) => c.topic_id).filter(Boolean)));
     const convIds = convList.map((c: any) => c.id);
 
-    // 2) fetch related profiles, topics and scores in parallel
-    // NOTE: we intentionally DO NOT fetch messages here to avoid creating
-    // a row per message in the conversations list. Full messages are
-    // loaded when the user opens a conversation (fetchConversationDetail).
+    let profilesQuery = supabase.from('profiles').select('id, name, last_name, email');
+    if (debouncedUserFilter) {
+      profilesQuery = profilesQuery.or(`name.ilike.%${debouncedUserFilter}%,last_name.ilike.%${debouncedUserFilter}%,email.ilike.%${debouncedUserFilter}%`);
+    }
+    if (profileIds.length > 0) {
+      profilesQuery = profilesQuery.in('id', profileIds);
+    } else if (debouncedUserFilter) {
+      profilesQuery = profilesQuery.limit(0);
+    }
+
     const [profilesRes, topicsRes, scoresRes] = await Promise.all([
-      supabase.from('profiles').select('id, name, last_name, email').in('id', profileIds),
-      supabase.from('ai_topics').select('id, title').in('id', topicIds),
-      supabase.from('ai_conversation_scores').select('id, ai_conversation_id, grammar, fluency, orthography, total, feedback, created_at').in('ai_conversation_id', convIds)
+      profilesQuery,
+      topicIds.length > 0
+        ? supabase.from('ai_topics').select('id, title').in('id', topicIds)
+        : Promise.resolve({ data: [], error: null }),
+      convIds.length > 0
+        ? supabase.from('ai_conversation_scores').select('id, ai_conversation_id, grammar, fluency, orthography, total, feedback, created_at').in('ai_conversation_id', convIds)
+        : Promise.resolve({ data: [], error: null })
     ]);
 
     if (profilesRes.error) throw profilesRes.error;
@@ -300,6 +377,12 @@ const ConversationManagement = () => {
     if (scoresRes.error) throw scoresRes.error;
 
     const profiles = profilesRes.data || [];
+    const profileIdSet = new Set(profiles.map((p: any) => p.id));
+
+    if (debouncedUserFilter) {
+      convList = convList.filter((c: any) => profileIdSet.has(c.profile_id));
+    }
+
     const topicsMap = (topicsRes.data || []).reduce((acc: any, t: any) => ({ ...acc, [t.id]: t }), {});
     const scores = scoresRes.data || [];
 
@@ -307,7 +390,6 @@ const ConversationManagement = () => {
       const profile = profiles.find((p: any) => p.id === c.profile_id) || { name: '', last_name: '', email: '' };
       const topic = topicsMap[c.topic_id] || { title: 'Tema eliminado' };
       const convScores = scores.filter((s: any) => s.ai_conversation_id === c.id);
-      // pick latest score if exists (most recent created_at)
       const latestRaw = convScores.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
       const latestScore = latestRaw
         ? {
@@ -318,9 +400,6 @@ const ConversationManagement = () => {
           total: latestRaw.total !== null && latestRaw.total !== undefined ? Number(latestRaw.total) : null,
         }
         : null;
-      // Don't include full messages in the list view; transcript will be
-      // fetched on demand when opening the conversation detail modal.
-      const convMessages: any[] = [];
 
       const usuario = profile.name ? `${profile.name} ${profile.last_name || ''}`.trim() : profile.email || 'Usuario';
 
@@ -332,12 +411,6 @@ const ConversationManagement = () => {
 
       const puntuacionFinal = latestScore?.total ?? Math.round(((Number(puntuaciones.gramatica) + Number(puntuaciones.fluidez) + Number(puntuaciones.ortografia)) / 3) || 0);
 
-      const transcript = (convMessages || []).map((m: any) => ({
-        role: (m.sender_type === 'ai' ? 'assistant' : 'user') as 'user' | 'assistant',
-        content: m.content,
-        timestamp: new Date(m.created_at)
-      }));
-
       return {
         id: c.id,
         usuario,
@@ -346,12 +419,20 @@ const ConversationManagement = () => {
         fecha: new Date(c.started_at),
         puntuaciones,
         puntuacionFinal,
-        transcript,
+        transcript: [],
         feedbackFinal: latestScore?.feedback ?? ''
       };
     });
 
-    setLogs(logsMapped);
+    let sortedLogs = logsMapped;
+    if (logSortBy === 'highest') {
+      sortedLogs = [...logsMapped].sort((a, b) => b.puntuacionFinal - a.puntuacionFinal);
+    } else if (logSortBy === 'lowest') {
+      sortedLogs = [...logsMapped].sort((a, b) => a.puntuacionFinal - b.puntuacionFinal);
+    }
+
+    setLogs(sortedLogs);
+    setLogCount(count || 0);
   };
 
   const fetchConversationDetail = async (convId: string) => {
@@ -488,7 +569,7 @@ const ConversationManagement = () => {
         }
 
         // refresh topics list
-        await loadTopics();
+        await fetchTopics();
         setIsTopicModalOpen(false);
         setEditingTopic(null);
       } catch (err) {
@@ -507,7 +588,7 @@ const ConversationManagement = () => {
             const { error } = await supabase.from('ai_topics').delete().eq('id', id);
             if (error) throw error;
             // cascade will remove vocab via FK
-            await loadTopics();
+            await fetchTopics();
             toast({ title: "Tema eliminado", description: "El tema ha sido eliminado correctamente." });
           } catch (err) {
             console.error(err);
@@ -532,7 +613,7 @@ const ConversationManagement = () => {
         const newStatus = t.activo ? 'draft' : 'active';
         const { error } = await supabase.from('ai_topics').update({ status: newStatus }).eq('id', id);
         if (error) throw error;
-        await loadTopics();
+        await fetchTopics();
         toast({ title: 'Estado actualizado', description: `Tema ${newStatus === 'active' ? 'activado' : 'desactivado'}.` });
       } catch (err) {
         console.error(err);
@@ -571,12 +652,8 @@ const ConversationManagement = () => {
     });
   };
 
-  const filteredLogs = logs.filter(log => {
-    const matchesUser = !userFilter || log.usuario.toLowerCase().includes(userFilter.toLowerCase());
-    const matchesLevel = levelFilter === "all" || log.nivel === levelFilter;
-    const matchesDate = !dateFilter || format(log.fecha, 'yyyy-MM-dd') === format(dateFilter, 'yyyy-MM-dd');
-    return matchesUser && matchesLevel && matchesDate;
-  });
+  const totalTopicPages = Math.max(1, Math.ceil(topicCount / TOPICS_PER_PAGE));
+  const totalLogPages = Math.max(1, Math.ceil(logCount / LOGS_PER_PAGE));
 
   return (
     <div className="space-y-6">
@@ -634,60 +711,194 @@ const ConversationManagement = () => {
               </DndContext>
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {topics.map((topic) => (
-                <Card key={topic.id} className={topic.activo ? '' : 'opacity-60'}>
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <div className="flex items-center gap-3">
-                        <div className="text-2xl">{topic.emoji || '💬'}</div>
-                        <div>
-                          <CardTitle className="text-lg">{topic.titulo}</CardTitle>
-                          <div className="mt-1 flex items-center gap-1">
-                            <Badge variant="secondary">{topic.nivel}</Badge>
-                            {((topic as any).points ?? 0) > 0 && (
-                              <Badge variant="outline">{(topic as any).points} pts</Badge>
+            <>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div>
+                      <Label>Buscar</Label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Buscar por título o descripción..."
+                          value={topicSearch}
+                          onChange={(e) => { setTopicSearch(e.target.value); setTopicPage(1); }}
+                          className="pl-9"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Nivel</Label>
+                      <Select value={topicLevelFilter} onValueChange={(v) => { setTopicLevelFilter(v); setTopicPage(1); }}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todos los niveles</SelectItem>
+                          {levels.map((level) => (
+                            <SelectItem key={level} value={level}>{level}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Ordenar por</Label>
+                      <Select value={topicSortBy} onValueChange={(v) => { setTopicSortBy(v); setTopicPage(1); }}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="sort_order">Orden personalizado</SelectItem>
+                          <SelectItem value="newest">Más recientes</SelectItem>
+                          <SelectItem value="oldest">Más antiguos</SelectItem>
+                          <SelectItem value="az">Alfabético A-Z</SelectItem>
+                          <SelectItem value="za">Alfabético Z-A</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="text-sm text-muted-foreground">
+                {topicCount} tema{topicCount !== 1 ? 's' : ''} encontrado{topicCount !== 1 ? 's' : ''}
+              </div>
+
+              <div className={`grid gap-4 md:grid-cols-2 lg:grid-cols-3 transition-opacity ${topicsLoading && topics.length > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
+                {topicsLoading && topics.length === 0
+                  ? Array.from({ length: 6 }).map((_, i) => (
+                    <Card key={`skel-${i}`}>
+                      <CardHeader>
+                        <div className="flex justify-between items-start">
+                          <div className="flex items-center gap-3">
+                            <Skeleton className="h-8 w-8 rounded" />
+                            <div>
+                              <Skeleton className="h-5 w-40 mb-2" />
+                              <Skeleton className="h-4 w-16" />
+                            </div>
+                          </div>
+                          <Skeleton className="h-6 w-10 rounded-full" />
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <Skeleton className="h-4 w-full mb-2" />
+                        <Skeleton className="h-4 w-3/4 mb-4" />
+                        <div className="flex gap-1 mb-4">
+                          <Skeleton className="h-5 w-16" />
+                          <Skeleton className="h-5 w-16" />
+                          <Skeleton className="h-5 w-16" />
+                        </div>
+                        <div className="flex gap-2">
+                          <Skeleton className="h-8 w-8" />
+                          <Skeleton className="h-8 w-8" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))
+                  : topics.map((topic) => (
+                    <Card key={topic.id} className={topic.activo ? '' : 'opacity-60'}>
+                      <CardHeader>
+                        <div className="flex justify-between items-start">
+                          <div className="flex items-center gap-3">
+                            <div className="text-2xl">{topic.emoji || '💬'}</div>
+                            <div>
+                              <CardTitle className="text-lg">{topic.titulo}</CardTitle>
+                              <div className="mt-1 flex items-center gap-1">
+                                <Badge variant="secondary">{topic.nivel}</Badge>
+                                {((topic as any).points ?? 0) > 0 && (
+                                  <Badge variant="outline">{(topic as any).points} pts</Badge>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <Switch
+                            checked={topic.activo}
+                            onCheckedChange={() => handleToggleTopicStatus(topic.id)}
+                          />
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm text-muted-foreground mb-4 line-clamp-3">
+                          {topic.descripcion || topic.promptSistema}
+                        </p>
+                        <div className="mb-4">
+                          <p className="text-sm font-medium mb-2">Vocabulario ({topic.vocabulario.length} palabras)</p>
+                          <div className="flex flex-wrap gap-1">
+                            {topic.vocabulario.slice(0, 3).map((word) => (
+                              <Badge key={word.id} variant="outline" className="text-xs">
+                                {word.word}
+                              </Badge>
+                            ))}
+                            {topic.vocabulario.length > 3 && (
+                              <Badge variant="outline" className="text-xs">
+                                +{topic.vocabulario.length - 3} más
+                              </Badge>
                             )}
                           </div>
                         </div>
-                      </div>
-                      <Switch
-                        checked={topic.activo}
-                        onCheckedChange={() => handleToggleTopicStatus(topic.id)}
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" onClick={() => handleEditTopic(topic)}>
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => handleDeleteTopic(topic.id)}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))
+                }
+              </div>
+
+              {topicCount === 0 && !topicsLoading && (
+                <div className="text-center py-8 text-muted-foreground">
+                  No se encontraron temas con los filtros seleccionados.
+                </div>
+              )}
+
+              {totalTopicPages > 1 && (
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        onClick={() => setTopicPage(p => Math.max(1, p - 1))}
+                        className={topicPage <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
                       />
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted-foreground mb-4 line-clamp-3">
-                      {topic.descripcion || topic.promptSistema}
-                    </p>
-                    <div className="mb-4">
-                      <p className="text-sm font-medium mb-2">Vocabulario ({topic.vocabulario.length} palabras)</p>
-                      <div className="flex flex-wrap gap-1">
-                        {topic.vocabulario.slice(0, 3).map((word) => (
-                          <Badge key={word.id} variant="outline" className="text-xs">
-                            {word.word}
-                          </Badge>
-                        ))}
-                        {topic.vocabulario.length > 3 && (
-                          <Badge variant="outline" className="text-xs">
-                            +{topic.vocabulario.length - 3} más
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handleEditTopic(topic)}>
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => handleDeleteTopic(topic.id)}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                    </PaginationItem>
+                    {Array.from({ length: totalTopicPages }, (_, i) => i + 1)
+                      .filter(page => page === 1 || page === totalTopicPages || Math.abs(page - topicPage) <= 1)
+                      .reduce<(number | 'ellipsis')[]>((acc, page, i, arr) => {
+                        if (i > 0 && page - (arr[i - 1] as number) > 1) acc.push('ellipsis');
+                        acc.push(page);
+                        return acc;
+                      }, [])
+                      .map((item, i) =>
+                        item === 'ellipsis' ? (
+                          <PaginationItem key={`ellipsis-${i}`}>
+                            <PaginationEllipsis />
+                          </PaginationItem>
+                        ) : (
+                          <PaginationItem key={item}>
+                            <PaginationLink
+                              isActive={topicPage === item}
+                              onClick={() => setTopicPage(item)}
+                              className="cursor-pointer"
+                            >
+                              {item}
+                            </PaginationLink>
+                          </PaginationItem>
+                        )
+                      )}
+                    <PaginationItem>
+                      <PaginationNext
+                        onClick={() => setTopicPage(p => Math.min(totalTopicPages, p + 1))}
+                        className={topicPage >= totalTopicPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              )}
+            </>
           )}
         </TabsContent>
 
@@ -704,19 +915,19 @@ const ConversationManagement = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-4 md:grid-cols-4">
+              <div className="grid gap-4 md:grid-cols-5">
                 <div>
                   <Label htmlFor="user-filter">Usuario</Label>
                   <Input
                     id="user-filter"
                     placeholder="Buscar por usuario..."
                     value={userFilter}
-                    onChange={(e) => setUserFilter(e.target.value)}
+                    onChange={(e) => { setUserFilter(e.target.value); setLogPage(1); }}
                   />
                 </div>
                 <div>
                   <Label htmlFor="level-filter">Nivel</Label>
-                  <Select value={levelFilter} onValueChange={setLevelFilter}>
+                  <Select value={levelFilter} onValueChange={(v) => { setLevelFilter(v); setLogPage(1); }}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -741,17 +952,33 @@ const ConversationManagement = () => {
                       <Calendar
                         mode="single"
                         selected={dateFilter}
-                        onSelect={setDateFilter}
+                        onSelect={(d) => { setDateFilter(d); setLogPage(1); }}
                         initialFocus
                       />
                     </PopoverContent>
                   </Popover>
+                </div>
+                <div>
+                  <Label>Ordenar por</Label>
+                  <Select value={logSortBy} onValueChange={(v) => { setLogSortBy(v); setLogPage(1); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="newest">Más recientes</SelectItem>
+                      <SelectItem value="oldest">Más antiguos</SelectItem>
+                      <SelectItem value="highest">Mayor puntuación</SelectItem>
+                      <SelectItem value="lowest">Menor puntuación</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="flex items-end">
                   <Button variant="outline" onClick={() => {
                     setUserFilter("");
                     setLevelFilter("all");
                     setDateFilter(undefined);
+                    setLogSortBy("newest");
+                    setLogPage(1);
                   }}>
                     Limpiar Filtros
                   </Button>
@@ -760,7 +987,11 @@ const ConversationManagement = () => {
             </CardContent>
           </Card>
 
-          <Card>
+          <div className="text-sm text-muted-foreground">
+            {logCount} resultado{logCount !== 1 ? 's' : ''}
+          </div>
+
+          <Card className={`transition-opacity ${logsLoading && logs.length > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
@@ -774,7 +1005,7 @@ const ConversationManagement = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredLogs.map((log) => (
+                  {logs.map((log) => (
                     <TableRow key={log.id}>
                       <TableCell className="font-medium">{log.usuario}</TableCell>
                       <TableCell>{log.tema}</TableCell>
@@ -811,10 +1042,78 @@ const ConversationManagement = () => {
                       </TableCell>
                     </TableRow>
                   ))}
+                  {logsLoading && logs.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6}>
+                        <div className="space-y-2 py-2">
+                          {Array.from({ length: 5 }).map((_, i) => (
+                            <div key={i} className="flex items-center gap-4">
+                              <Skeleton className="h-4 w-32" />
+                              <Skeleton className="h-4 w-40" />
+                              <Skeleton className="h-5 w-12" />
+                              <Skeleton className="h-4 w-28" />
+                              <Skeleton className="h-5 w-14" />
+                              <Skeleton className="h-8 w-8" />
+                            </div>
+                          ))}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {!logsLoading && logs.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        No se encontraron conversaciones con los filtros seleccionados.
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
           </Card>
+
+          {totalLogPages > 1 && (
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={() => setLogPage(p => Math.max(1, p - 1))}
+                    className={logPage <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+                {Array.from({ length: totalLogPages }, (_, i) => i + 1)
+                  .filter(page => page === 1 || page === totalLogPages || Math.abs(page - logPage) <= 1)
+                  .reduce<(number | 'ellipsis')[]>((acc, page, i, arr) => {
+                    if (i > 0 && page - (arr[i - 1] as number) > 1) acc.push('ellipsis');
+                    acc.push(page);
+                    return acc;
+                  }, [])
+                  .map((item, i) =>
+                    item === 'ellipsis' ? (
+                      <PaginationItem key={`ellipsis-${i}`}>
+                        <PaginationEllipsis />
+                      </PaginationItem>
+                    ) : (
+                      <PaginationItem key={item}>
+                        <PaginationLink
+                          isActive={logPage === item}
+                          onClick={() => setLogPage(item)}
+                          className="cursor-pointer"
+                        >
+                          {item}
+                        </PaginationLink>
+                      </PaginationItem>
+                    )
+                  )}
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={() => setLogPage(p => Math.min(totalLogPages, p + 1))}
+                    className={logPage >= totalLogPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          )}
         </TabsContent>
       </Tabs>
 
@@ -1105,7 +1404,7 @@ const ConversationManagement = () => {
                 if (error) throw error;
                 toast({ title: 'Guardado', description: 'Puntos actualizados correctamente.' });
                 // refresh logs list and detail
-                await loadLogs();
+                await fetchLogs();
                 await fetchConversationDetail(selectedLog.id);
               } catch (err) {
                 console.error('Error updating puntos', err);
