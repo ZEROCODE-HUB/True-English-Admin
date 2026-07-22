@@ -161,7 +161,7 @@ export default function UserManagement() {
           email: String(p['email'] ?? ''),
           celular: String(p['phone'] ?? ''),
           fechaNacimiento: p['birth_date'] ? String(p['birth_date']) : null,
-          nivelActual: p['nivel_actual'] ? String(p['nivel_actual']) : null,
+          nivelActual: p['nivel_actual'] && String(p['nivel_actual']).toUpperCase() !== 'NULL' ? String(p['nivel_actual']) : null,
           fechaRegistro: p['created_at'] ? String(p['created_at']) : null,
           estado: p['status'] ? String(p['status']) : null,
           // normalize stored tipo to lowercase for consistent comparisons
@@ -296,16 +296,17 @@ export default function UserManagement() {
   };
 
   const handleSaveUser = async (userData: Record<string, unknown>) => {
-    // Map form data to DB columns
+    const rawBirth = userData.fechaNacimiento;
+    const birthDate = rawBirth instanceof Date ? format(rawBirth, 'yyyy-MM-dd') : rawBirth ?? null;
+
     const payload = {
       email: userData.email,
       name: userData.nombre,
       last_name: userData.apellido,
       phone: userData.celular ?? null,
-      birth_date: userData.fechaNacimiento ?? null,
+      birth_date: birthDate,
       nivel_actual: userData.nivelActual ?? null,
       status: userData.estado ?? 'activo',
-      // store tipo normalized to lowercase (e.g. 'alumno')
       tipo: (userData.tipoUsuario ? String(userData.tipoUsuario) : 'alumno').toLowerCase(),
       code: userData.codigoInvitacion ?? null,
     };
@@ -546,7 +547,7 @@ export default function UserManagement() {
         email: String(p['email'] ?? ''),
         celular: String(p['phone'] ?? ''),
         fechaNacimiento: p['birth_date'] ? String(p['birth_date']) : null,
-        nivelActual: p['nivel_actual'] ? String(p['nivel_actual']) : null,
+        nivelActual: p['nivel_actual'] && String(p['nivel_actual']).toUpperCase() !== 'NULL' ? String(p['nivel_actual']) : null,
         fechaRegistro: p['created_at'] ? String(p['created_at']) : null,
         estado: p['status'] ? String(p['status']) : null,
         tipoUsuario: p['tipo'] ? String(p['tipo']).toLowerCase() : null,

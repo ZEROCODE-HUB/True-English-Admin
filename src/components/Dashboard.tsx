@@ -327,7 +327,7 @@ export default function Dashboard() {
         const mapped: Student[] = profiles.map((p) => ({
           id: String(p["id"] ?? ""),
           nombre: `${String(p["name"] ?? "")} ${String(p["last_name"] ?? "")}`.trim(),
-          nivelActual: p["nivel_actual"] ? String(p["nivel_actual"]) : null,
+          nivelActual: p["nivel_actual"] && String(p["nivel_actual"]).toUpperCase() !== 'NULL' ? String(p["nivel_actual"]) : null,
           empresa: p["company"] ? String(p["company"]) : null,
           ultimaLeccion: null,
           puntosAcumulados: Number(p["puntos"] ?? 0),
