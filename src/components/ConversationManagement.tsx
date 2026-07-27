@@ -14,7 +14,8 @@ import { Switch } from "@/components/ui/switch";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CalendarIcon, Plus, Edit, Trash2, Eye, Filter, GripVertical, ArrowUpDown, Search } from "lucide-react";
+import { CalendarIcon, Plus, Edit, Trash2, Eye, Filter, GripVertical, ArrowUpDown, Search, Lock, Building2, Loader2 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious, PaginationEllipsis } from "@/components/ui/pagination";
 import {
   DndContext,
@@ -38,6 +39,7 @@ import { es } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
 import supabase from "@/lib/supabase";
 import DeleteConfirmationDialog from "./DeleteConfirmationDialog";
+import TopicAssignmentModal from "./TopicAssignmentModal";
 
 interface VocabularyWord {
   id: string;
@@ -77,6 +79,33 @@ interface ConversationLog {
   }>;
   feedbackFinal: string;
 }
+
+interface AssignmentInfo {
+  companyId: string;
+  companyName: string;
+  areaId: string | null;
+  areaName: string | null;
+}
+
+interface Company {
+  id: string;
+  name: string;
+  slug: string;
+  active: boolean;
+}
+
+const MAX_VISIBLE_BADGES = 2;
+
+const buildAssignedTooltip = (assignments: AssignmentInfo[]) => {
+  const grouped: Record<string, string[]> = {};
+  assignments.forEach(a => {
+    if (!grouped[a.companyName]) grouped[a.companyName] = [];
+    grouped[a.companyName].push(a.areaName || "Toda la empresa");
+  });
+  return Object.entries(grouped).map(([company, areas]) =>
+    `• ${company} → ${areas.join(", ")}`
+  ).join("\n");
+};
 
 // We'll load topics and logs from Supabase instead of using hardcoded mock data.
 
@@ -147,6 +176,15 @@ const ConversationManagement = () => {
   const [reorderMode, setReorderMode] = useState(false);
   const [reorderedTopics, setReorderedTopics] = useState<ConversationTopic[]>([]);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
+  const [assignmentsByTopic, setAssignmentsByTopic] = useState<Record<string, AssignmentInfo[]>>({});
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [selectedCompany, setSelectedCompany] = useState<string>("all");
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [assigningTopic, setAssigningTopic] = useState<ConversationTopic | null>(null);
+  const [modalCompanyId, setModalCompanyId] = useState<string>("__none__");
+  const [modalAreaId, setModalAreaId] = useState<string>("__none__");
+  const [modalAreas, setModalAreas] = useState<any[]>([]);
+  const [modalAssignments, setModalAssignments] = useState<AssignmentInfo[]>([]);
   const { toast } = useToast();
 
   const [topicSearch, setTopicSearch] = useState("");
@@ -188,6 +226,7 @@ const ConversationManagement = () => {
       setTopicsLoading(true);
       try {
         await fetchTopics(controller.signal);
+        fetchCompanies();
       } catch (err: any) {
         if (err?.name === 'AbortError') return;
         console.error('Error cargando datos de conversaciones IA', err);
@@ -269,7 +308,33 @@ const ConversationManagement = () => {
 
     setTopics(mapTopicsData(data || []));
     setTopicCount(count || 0);
+    fetchAssignments((data || []).map((t: any) => t.id));
   };
+
+  const fetchAssignments = useCallback(async (topicIds: string[]) => {
+    if (topicIds.length === 0) { setAssignmentsByTopic({}); return; }
+    const { data } = await supabase
+      .from("topic_assignments")
+      .select("topic_id, company_id, area_id, companies!company_id(name), areas!area_id(name)")
+      .in("topic_id", topicIds);
+    const map: Record<string, AssignmentInfo[]> = {};
+    (data || []).forEach((r: any) => {
+      const tid = r.topic_id;
+      if (!map[tid]) map[tid] = [];
+      map[tid].push({
+        companyId: r.company_id,
+        companyName: r.companies?.name ?? "—",
+        areaId: r.area_id,
+        areaName: r.areas?.name ?? null,
+      });
+    });
+    setAssignmentsByTopic(map);
+  }, []);
+
+  const fetchCompanies = useCallback(async () => {
+    const { data } = await supabase.from("companies").select("id, name, slug, active").eq("active", true).order("name");
+    setCompanies((data as Company[]) || []);
+  }, []);
 
   const handleEnterReorderMode = () => {
     setReorderedTopics([...topics]);
@@ -523,11 +588,80 @@ const ConversationManagement = () => {
       , points: 0
     });
     setIsTopicModalOpen(true);
+    setModalCompanyId("__none__");
+    setModalAreaId("__none__");
+    setModalAreas([]);
+    setModalAssignments([]);
   };
 
   const handleEditTopic = (topic: ConversationTopic) => {
     setEditingTopic({ ...topic });
     setIsTopicModalOpen(true);
+    setModalCompanyId("__none__");
+    setModalAreaId("__none__");
+    setModalAreas([]);
+    setModalAssignments(assignmentsByTopic[topic.id] || []);
+  };
+
+  useEffect(() => {
+    if (!isTopicModalOpen || modalCompanyId === "__none__") {
+      setModalAreas([]);
+      setModalAreaId("__none__");
+      return;
+    }
+    (async () => {
+      const { data } = await supabase.from("areas").select("id, name, active").eq("company_id", modalCompanyId).eq("active", true).order("name");
+      setModalAreas((data as any[]) || []);
+      setModalAreaId("__none__");
+    })();
+  }, [modalCompanyId, isTopicModalOpen]);
+
+  const handleModalAddAssignment = () => {
+    if (modalCompanyId === "__none__") return;
+    const company = companies.find(c => c.id === modalCompanyId);
+    const area = modalAreas.find((a: any) => a.id === modalAreaId);
+    const exists = modalAssignments.some(a => a.companyId === modalCompanyId && (a.areaId ?? null) === (modalAreaId === "__none__" ? null : modalAreaId));
+    if (exists) {
+      toast({ title: "Ya existe", description: "Esta asignación ya está en la lista." });
+      return;
+    }
+    setModalAssignments(prev => [...prev, {
+      companyId: modalCompanyId,
+      companyName: company?.name ?? "—",
+      areaId: modalAreaId === "__none__" ? null : modalAreaId,
+      areaName: area?.name ?? null,
+    }]);
+    setModalCompanyId("__none__");
+    setModalAreaId("__none__");
+    setModalAreas([]);
+  };
+
+  const handleModalRemoveAssignment = (index: number) => {
+    setModalAssignments(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const syncAssignments = async (topicId: string) => {
+    const original = assignmentsByTopic[topicId] || [];
+    const draft = modalAssignments;
+
+    const toAdd = draft.filter(d => !original.some(o => o.companyId === d.companyId && (o.areaId ?? null) === (d.areaId ?? null)));
+    const toRemove = original.filter(o => !draft.some(d => d.companyId === o.companyId && (d.areaId ?? null) === (o.areaId ?? null)));
+
+    await Promise.all([
+      ...toAdd.map(a =>
+        supabase.from("topic_assignments").insert({
+          topic_id: topicId,
+          company_id: a.companyId,
+          area_id: a.areaId,
+        })
+      ),
+      ...toRemove.map(a => {
+        let q = supabase.from("topic_assignments").delete().eq("topic_id", topicId).eq("company_id", a.companyId);
+        if (a.areaId) q = q.eq("area_id", a.areaId);
+        else q = q.is("area_id", null);
+        return q;
+      }),
+    ]);
   };
 
   const handleSaveTopic = () => {
@@ -535,16 +669,15 @@ const ConversationManagement = () => {
       if (!editingTopic) return;
 
       try {
+        let topicId = editingTopic.id;
+
         if (editingTopic.id) {
-          // update topic
           const { error } = await supabase
             .from('ai_topics')
             .update({ title: editingTopic.titulo, prompt: editingTopic.promptSistema, description: editingTopic.descripcion || null, level: editingTopic.nivel, metadata: {}, status: editingTopic.activo ? 'active' : 'draft', emoji: editingTopic.emoji || null, points: (editingTopic as any).points ?? 0 })
             .eq('id', editingTopic.id);
-
           if (error) throw error;
 
-          // replace vocab: delete existing and insert new
           await supabase.from('ai_topic_vocab').delete().eq('topic_id', editingTopic.id);
           if (editingTopic.vocabulario.length > 0) {
             const toInsert = editingTopic.vocabulario.map((v, i) => ({ topic_id: editingTopic.id, word: v.word, definition: v.definition, part_of_speech: v.partOfSpeech, order: i }));
@@ -552,12 +685,13 @@ const ConversationManagement = () => {
             if (err2) throw err2;
           }
 
+          await syncAssignments(editingTopic.id);
           toast({ title: "Tema actualizado", description: "El tema ha sido actualizado correctamente." });
         } else {
-          // create topic — sort_order al final de la lista actual
           const maxSortOrder = topics.reduce((max, t) => Math.max(max, (t as any).sort_order ?? 0), 0);
           const { data: created, error } = await supabase.from('ai_topics').insert({ title: editingTopic.titulo, prompt: editingTopic.promptSistema, description: editingTopic.descripcion || null, level: editingTopic.nivel, metadata: {}, status: editingTopic.activo ? 'active' : 'draft', emoji: editingTopic.emoji || null, points: (editingTopic as any).points ?? 0, sort_order: maxSortOrder + 1 }).select().single();
           if (error) throw error;
+          topicId = created.id;
 
           if (editingTopic.vocabulario.length > 0) {
             const toInsert = editingTopic.vocabulario.map((v, i) => ({ topic_id: created.id, word: v.word, definition: v.definition, part_of_speech: v.partOfSpeech, order: i }));
@@ -565,10 +699,10 @@ const ConversationManagement = () => {
             if (err2) throw err2;
           }
 
+          await syncAssignments(created.id);
           toast({ title: "Tema creado", description: "El tema ha sido creado correctamente." });
         }
 
-        // refresh topics list
         await fetchTopics();
         setIsTopicModalOpen(false);
         setEditingTopic(null);
@@ -655,6 +789,11 @@ const ConversationManagement = () => {
   const totalTopicPages = Math.max(1, Math.ceil(topicCount / TOPICS_PER_PAGE));
   const totalLogPages = Math.max(1, Math.ceil(logCount / LOGS_PER_PAGE));
 
+  const filteredTopics = topics.filter(topic => {
+    if (selectedCompany === "all") return true;
+    return (assignmentsByTopic[topic.id] || []).some(a => a.companyId === selectedCompany);
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -714,7 +853,7 @@ const ConversationManagement = () => {
             <>
               <Card>
                 <CardContent className="pt-6">
-                  <div className="grid gap-4 md:grid-cols-3">
+                  <div className="grid gap-4 md:grid-cols-4">
                     <div>
                       <Label>Buscar</Label>
                       <div className="relative">
@@ -756,12 +895,26 @@ const ConversationManagement = () => {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div>
+                      <Label>Empresa</Label>
+                      <Select value={selectedCompany} onValueChange={(v) => { setSelectedCompany(v); setTopicPage(1); }}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todas las empresas</SelectItem>
+                          {companies.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
 
               <div className="text-sm text-muted-foreground">
-                {topicCount} tema{topicCount !== 1 ? 's' : ''} encontrado{topicCount !== 1 ? 's' : ''}
+                {selectedCompany === "all" ? topicCount : filteredTopics.length} tema{(selectedCompany === "all" ? topicCount : filteredTopics.length) !== 1 ? 's' : ''} encontrado{(selectedCompany === "all" ? topicCount : filteredTopics.length) !== 1 ? 's' : ''}
               </div>
 
               <div className={`grid gap-4 md:grid-cols-2 lg:grid-cols-3 transition-opacity ${topicsLoading && topics.length > 0 ? 'opacity-50 pointer-events-none' : ''}`}>
@@ -795,18 +948,30 @@ const ConversationManagement = () => {
                       </CardContent>
                     </Card>
                   ))
-                  : topics.map((topic) => (
-                    <Card key={topic.id} className={topic.activo ? '' : 'opacity-60'}>
+                  : filteredTopics.map((topic) => {
+                    const assigns = assignmentsByTopic[topic.id] || [];
+                    const hasAssignments = assigns.length > 0;
+                    const visibleBadges = assigns.slice(0, MAX_VISIBLE_BADGES);
+                    const overflowCount = assigns.length - MAX_VISIBLE_BADGES;
+                    const tooltipText = buildAssignedTooltip(assigns);
+                    return (
+                    <Card key={topic.id} className={`${topic.activo ? '' : 'opacity-60'} ${hasAssignments ? 'bg-primary/[0.02]' : ''}`}>
                       <CardHeader>
                         <div className="flex justify-between items-start">
                           <div className="flex items-center gap-3">
                             <div className="text-2xl">{topic.emoji || '💬'}</div>
                             <div>
-                              <CardTitle className="text-lg">{topic.titulo}</CardTitle>
+                              <CardTitle className="text-lg flex items-center gap-1.5">
+                                {hasAssignments && <Lock className="w-3.5 h-3.5 text-primary/60 shrink-0" />}
+                                {topic.titulo}
+                              </CardTitle>
                               <div className="mt-1 flex items-center gap-1">
                                 <Badge variant="secondary">{topic.nivel}</Badge>
                                 {((topic as any).points ?? 0) > 0 && (
                                   <Badge variant="outline">{(topic as any).points} pts</Badge>
+                                )}
+                                {hasAssignments && (
+                                  <Badge variant="outline" className="text-xs text-primary/70">Privado</Badge>
                                 )}
                               </div>
                             </div>
@@ -818,10 +983,10 @@ const ConversationManagement = () => {
                         </div>
                       </CardHeader>
                       <CardContent>
-                        <p className="text-sm text-muted-foreground mb-4 line-clamp-3">
+                        <p className="text-sm text-muted-foreground mb-3 line-clamp-3">
                           {topic.descripcion || topic.promptSistema}
                         </p>
-                        <div className="mb-4">
+                        <div className="mb-3">
                           <p className="text-sm font-medium mb-2">Vocabulario ({topic.vocabulario.length} palabras)</p>
                           <div className="flex flex-wrap gap-1">
                             {topic.vocabulario.slice(0, 3).map((word) => (
@@ -836,7 +1001,38 @@ const ConversationManagement = () => {
                             )}
                           </div>
                         </div>
+                        {hasAssignments && (
+                          <div className="mb-3">
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="flex flex-wrap gap-1 cursor-default">
+                                    {visibleBadges.map((a, i) => (
+                                      <Badge key={i} variant="outline" className="text-xs whitespace-nowrap gap-1">
+                                        <Building2 className="w-3 h-3" />
+                                        {a.companyName}{a.areaName ? `: ${a.areaName}` : ""}
+                                      </Badge>
+                                    ))}
+                                    {overflowCount > 0 && (
+                                      <Badge variant="outline" className="text-xs">+{overflowCount} más</Badge>
+                                    )}
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <pre className="whitespace-pre-wrap text-xs">{tooltipText}</pre>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </div>
+                        )}
                         <div className="flex gap-2">
+                          <Button variant="outline" size="sm" onClick={() => {
+                            setAssigningTopic(topic);
+                            setIsAssignModalOpen(true);
+                          }}>
+                            <Building2 className="w-4 h-4 mr-1" />
+                            Asignar Empresa
+                          </Button>
                           <Button variant="outline" size="sm" onClick={() => handleEditTopic(topic)}>
                             <Edit className="w-4 h-4" />
                           </Button>
@@ -846,11 +1042,11 @@ const ConversationManagement = () => {
                         </div>
                       </CardContent>
                     </Card>
-                  ))
+                    )})
                 }
               </div>
 
-              {topicCount === 0 && !topicsLoading && (
+              {filteredTopics.length === 0 && !topicsLoading && (
                 <div className="text-center py-8 text-muted-foreground">
                   No se encontraron temas con los filtros seleccionados.
                 </div>
@@ -1203,6 +1399,109 @@ const ConversationManagement = () => {
               <Input id="topic-points" type="number" min={0} step={1} value={String((editingTopic as any)?.points ?? 0)} onChange={(e) => setEditingTopic(prev => prev ? { ...prev, points: Math.max(0, parseInt(e.target.value || '0') || 0) } : null)} />
             </div>
 
+            <div className="rounded-xl border border-primary/20 bg-gradient-to-br from-primary/[0.02] to-transparent p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10">
+                    <Building2 className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <Label className="text-sm font-semibold">Visibilidad por Empresa</Label>
+                    <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                      Controla quién puede ver este tema
+                    </p>
+                  </div>
+                </div>
+                {modalAssignments.length > 0 && (
+                  <Badge variant="secondary" className="text-xs font-normal">
+                    {modalAssignments.length} asignación{modalAssignments.length !== 1 ? 'es' : ''}
+                  </Badge>
+                )}
+              </div>
+
+              <div className="rounded-lg border bg-background/60 backdrop-blur divide-y">
+                {modalAssignments.length > 0 ? (
+                  modalAssignments.map((a, i) => (
+                    <div key={i} className="flex items-center justify-between px-3.5 py-2.5 group hover:bg-muted/30 transition-colors">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-7 h-7 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                          <Building2 className="w-3.5 h-3.5 text-primary/70" />
+                        </div>
+                        <div className="flex items-center gap-1.5 text-sm min-w-0">
+                          <span className="font-medium truncate">{a.companyName}</span>
+                          {a.areaName ? (
+                            <>
+                              <span className="text-muted-foreground/50">→</span>
+                              <Badge variant="outline" className="text-[11px] shrink-0 border-primary/20">{a.areaName}</Badge>
+                            </>
+                          ) : (
+                            <Badge variant="secondary" className="text-[11px] shrink-0">Toda la empresa</Badge>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 px-0 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                        onClick={() => handleModalRemoveAssignment(i)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                      </Button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="px-4 py-3 flex items-center gap-2">
+                    <Lock className="w-3.5 h-3.5 text-muted-foreground/50" />
+                    <span className="text-xs text-muted-foreground">Público — todos los usuarios pueden ver este tema</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-muted/30 rounded-lg p-3 space-y-2.5">
+                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Agregar restricción</p>
+                <div className="grid grid-cols-12 gap-2 items-end">
+                  <div className="col-span-5">
+                    <Select value={modalCompanyId} onValueChange={setModalCompanyId}>
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue placeholder="Empresa..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Seleccionar empresa...</SelectItem>
+                        {companies.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="col-span-4">
+                    <Select value={modalAreaId} onValueChange={setModalAreaId} disabled={modalCompanyId === "__none__" || modalAreas.length === 0}>
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue placeholder={modalAreas.length === 0 ? "Sin áreas" : "Área..."} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Toda la empresa</SelectItem>
+                        {modalAreas.map((a: any) => (
+                          <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="col-span-3">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-9 w-full"
+                      disabled={modalCompanyId === "__none__"}
+                      onClick={handleModalAddAssignment}
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      Agregar
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div>
               <div className="flex justify-between items-center mb-4">
                 <Label>Palabras de Vocabulario Clave</Label>
@@ -1414,6 +1713,15 @@ const ConversationManagement = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      <TopicAssignmentModal
+        isOpen={isAssignModalOpen}
+        onClose={() => { setIsAssignModalOpen(false); setAssigningTopic(null); }}
+        topicId={assigningTopic?.id || ""}
+        topicTitle={assigningTopic?.titulo || ""}
+        currentAssignments={assigningTopic ? (assignmentsByTopic[assigningTopic.id] || []) : []}
+        onAssigned={() => { fetchAssignments(topics.map(t => t.id)); }}
+      />
 
       <DeleteConfirmationDialog
         isOpen={deleteDialog.isOpen}
