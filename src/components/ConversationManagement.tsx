@@ -190,13 +190,11 @@ const ConversationManagement = () => {
   const [topicSearch, setTopicSearch] = useState("");
   const [topicLevelFilter, setTopicLevelFilter] = useState("all");
   const [topicSortBy, setTopicSortBy] = useState("sort_order");
-  const [topicPage, setTopicPage] = useState(1);
   const [topicCount, setTopicCount] = useState(0);
   const [logSortBy, setLogSortBy] = useState("newest");
   const [logPage, setLogPage] = useState(1);
   const [logCount, setLogCount] = useState(0);
 
-  const TOPICS_PER_PAGE = 9;
   const LOGS_PER_PAGE = 10;
 
   const debouncedTopicSearch = useDebounce(topicSearch, 300);
@@ -237,7 +235,7 @@ const ConversationManagement = () => {
     };
     load();
     return () => controller.abort();
-  }, [debouncedTopicSearch, topicLevelFilter, topicSortBy, topicPage]);
+  }, [debouncedTopicSearch, topicLevelFilter, topicSortBy]);
 
   useEffect(() => {
     if (activeTab !== 'logs') return;
@@ -296,10 +294,6 @@ const ConversationManagement = () => {
       case 'za': query = query.order('title', { ascending: false }); break;
       default: query = query.order('sort_order', { ascending: true });
     }
-
-    const from = (topicPage - 1) * TOPICS_PER_PAGE;
-    const to = from + TOPICS_PER_PAGE - 1;
-    query = query.range(from, to);
 
     if (signal) query = query.abortSignal(signal);
 
@@ -786,7 +780,6 @@ const ConversationManagement = () => {
     });
   };
 
-  const totalTopicPages = Math.max(1, Math.ceil(topicCount / TOPICS_PER_PAGE));
   const totalLogPages = Math.max(1, Math.ceil(logCount / LOGS_PER_PAGE));
 
   const filteredTopics = topics.filter(topic => {
@@ -861,14 +854,14 @@ const ConversationManagement = () => {
                         <Input
                           placeholder="Buscar por título o descripción..."
                           value={topicSearch}
-                          onChange={(e) => { setTopicSearch(e.target.value); setTopicPage(1); }}
+                          onChange={(e) => setTopicSearch(e.target.value)}
                           className="pl-9"
                         />
                       </div>
                     </div>
                     <div>
                       <Label>Nivel</Label>
-                      <Select value={topicLevelFilter} onValueChange={(v) => { setTopicLevelFilter(v); setTopicPage(1); }}>
+                      <Select value={topicLevelFilter} onValueChange={(v) => setTopicLevelFilter(v)}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
@@ -882,7 +875,7 @@ const ConversationManagement = () => {
                     </div>
                     <div>
                       <Label>Ordenar por</Label>
-                      <Select value={topicSortBy} onValueChange={(v) => { setTopicSortBy(v); setTopicPage(1); }}>
+                      <Select value={topicSortBy} onValueChange={(v) => setTopicSortBy(v)}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
@@ -897,7 +890,7 @@ const ConversationManagement = () => {
                     </div>
                     <div>
                       <Label>Empresa</Label>
-                      <Select value={selectedCompany} onValueChange={(v) => { setSelectedCompany(v); setTopicPage(1); }}>
+                      <Select value={selectedCompany} onValueChange={(v) => setSelectedCompany(v)}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
@@ -1050,49 +1043,6 @@ const ConversationManagement = () => {
                 <div className="text-center py-8 text-muted-foreground">
                   No se encontraron temas con los filtros seleccionados.
                 </div>
-              )}
-
-              {totalTopicPages > 1 && (
-                <Pagination>
-                  <PaginationContent>
-                    <PaginationItem>
-                      <PaginationPrevious
-                        onClick={() => setTopicPage(p => Math.max(1, p - 1))}
-                        className={topicPage <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                      />
-                    </PaginationItem>
-                    {Array.from({ length: totalTopicPages }, (_, i) => i + 1)
-                      .filter(page => page === 1 || page === totalTopicPages || Math.abs(page - topicPage) <= 1)
-                      .reduce<(number | 'ellipsis')[]>((acc, page, i, arr) => {
-                        if (i > 0 && page - (arr[i - 1] as number) > 1) acc.push('ellipsis');
-                        acc.push(page);
-                        return acc;
-                      }, [])
-                      .map((item, i) =>
-                        item === 'ellipsis' ? (
-                          <PaginationItem key={`ellipsis-${i}`}>
-                            <PaginationEllipsis />
-                          </PaginationItem>
-                        ) : (
-                          <PaginationItem key={item}>
-                            <PaginationLink
-                              isActive={topicPage === item}
-                              onClick={() => setTopicPage(item)}
-                              className="cursor-pointer"
-                            >
-                              {item}
-                            </PaginationLink>
-                          </PaginationItem>
-                        )
-                      )}
-                    <PaginationItem>
-                      <PaginationNext
-                        onClick={() => setTopicPage(p => Math.min(totalTopicPages, p + 1))}
-                        className={topicPage >= totalTopicPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                      />
-                    </PaginationItem>
-                  </PaginationContent>
-                </Pagination>
               )}
             </>
           )}
