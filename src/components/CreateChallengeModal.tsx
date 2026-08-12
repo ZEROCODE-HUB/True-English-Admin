@@ -67,6 +67,7 @@ export default function CreateChallengeModal({ isOpen, onClose, onSave, lessons,
           titulo: formData.titulo,
           nivel: formData.nivel as any,
           lessonId: formData.lessonId,
+          programId: lessons.find(l => l.id === formData.lessonId)?.programId ?? null,
           activo: formData.activo,
           points: (formData as any).points ?? 0
         }) as any);

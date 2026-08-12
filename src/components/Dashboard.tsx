@@ -53,7 +53,9 @@ export default function Dashboard() {
   const [levelFilter, setLevelFilter] = useState("all");
   const [selectedCompanyId, setSelectedCompanyId] = useState("all");
   const [selectedAreaId, setSelectedAreaId] = useState("all");
+  const [programFilter, setProgramFilter] = useState("all");
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
+  const [programs, setPrograms] = useState<{ id: string; name: string }[]>([]);
   const [areas, setAreas] = useState<{ id: string; name: string }[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
@@ -165,6 +167,9 @@ export default function Dashboard() {
         if (pids.length === 0) { setLevelStats({}); return; }
         query = query.in("id", pids);
       }
+      if (programFilter !== "all") {
+        query = query.eq("program_id", programFilter);
+      }
       const { data, error } = await query;
       if (error) throw error;
 
@@ -176,7 +181,6 @@ export default function Dashboard() {
         const lvl = raw && allowedLevels.has(raw) ? raw : "Sin nivel";
         counts[lvl] = (counts[lvl] ?? 0) + 1;
       });
-
       const total = Object.values(counts).reduce((s, v) => s + v, 0) || 0;
       const stats: Record<string, { count: number; percent: number }> = {};
       Object.entries(counts).forEach(([lvl, count]) => {
@@ -186,7 +190,7 @@ export default function Dashboard() {
     } catch (err) {
       console.error("failed to load level stats", err);
     }
-  }, [isFiltered, selectedCompanyId, selectedAreaId, getCompanyProfileIds]);
+  }, [isFiltered, selectedCompanyId, selectedAreaId, getCompanyProfileIds, programFilter]);
 
   const loadNotifications = useCallback(async () => {
     try {
@@ -260,7 +264,17 @@ export default function Dashboard() {
         .order("name");
       setCompanies(data || []);
     };
+    const fetchPrograms = async () => {
+      const { data } = await supabase
+        .from("programs")
+        .select("id, name")
+        .eq("active", true)
+        .order("sort_order")
+        .order("name");
+      setPrograms(data || []);
+    };
     fetchCompanies();
+    fetchPrograms();
   }, []);
 
   useEffect(() => {
@@ -303,6 +317,8 @@ export default function Dashboard() {
       }
 
       if (levelFilter && levelFilter !== "all") query = query.eq("nivel_actual", levelFilter);
+
+      if (programFilter && programFilter !== "all") query = query.eq("program_id", programFilter);
 
       if (isFiltered) {
         const pids = await getCompanyProfileIds(selectedCompanyId, selectedAreaId);
@@ -424,12 +440,12 @@ export default function Dashboard() {
     } finally {
       setStudentsLoading(false);
     }
-  }, [nameFilter, levelFilter, isFiltered, selectedCompanyId, selectedAreaId, getCompanyProfileIds, currentPage]);
+  }, [nameFilter, levelFilter, isFiltered, selectedCompanyId, selectedAreaId, getCompanyProfileIds, currentPage, programFilter]);
 
   useEffect(() => {
     setCurrentPage(1);
     fetchStudents({ page: 1 });
-  }, [nameFilter, levelFilter, selectedCompanyId, selectedAreaId, fetchStudents]);
+  }, [nameFilter, levelFilter, selectedCompanyId, selectedAreaId, fetchStudents, programFilter]);
 
   useEffect(() => {
     fetchStudents({ page: currentPage });
@@ -469,6 +485,18 @@ export default function Dashboard() {
               <SelectItem value="all">Todas las empresas</SelectItem>
               {companies.map((c) => (
                 <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={programFilter} onValueChange={setProgramFilter}>
+            <SelectTrigger className="w-[220px]">
+              <BarChart3 className="w-4 h-4 mr-2 text-muted-foreground" />
+              <SelectValue placeholder="Todas las líneas" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las líneas</SelectItem>
+              {programs.map((p) => (
+                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -540,7 +568,7 @@ export default function Dashboard() {
 
       <Card className="shadow-card">
         <CardHeader>
-          <CardTitle className="text-sm">Distribución por Nivel{isFiltered ? " — Empresa Seleccionada" : ""}</CardTitle>
+          <CardTitle className="text-sm">Distribución por Nivel{isFiltered ? " — Empresa Seleccionada" : ""}{programFilter !== "all" ? " — Línea Seleccionada" : ""}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">

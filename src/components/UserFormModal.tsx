@@ -8,8 +8,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import type { User } from "./UserManagement";
-import type { Company, Area } from "@/types/db";
+import type { Company, Area, Program, ProgramLevel } from "@/types/db";
 import { supabase } from "@/lib/supabase";
+import { listPrograms, listProgramLevels } from "@/lib/levels";
 
 interface UserFormModalProps {
   isOpen: boolean;
@@ -52,11 +53,14 @@ export default function UserFormModal({
     password: "",
     companyId: "__none__" as string,
     areaId: "__none__" as string,
+    programId: "__none__" as string,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [programLevels, setProgramLevels] = useState<ProgramLevel[]>([]);
   const { toast } = useToast();
 
   const currentYear = new Date().getFullYear();
@@ -94,6 +98,7 @@ export default function UserFormModal({
         password: "",
         companyId: initialCompanyId || "__none__",
         areaId: initialAreaId || "__none__",
+        programId: user.programId || "__none__",
       });
     } else {
       setFormData({
@@ -109,6 +114,7 @@ export default function UserFormModal({
         password: "",
         companyId: "__none__",
         areaId: "__none__",
+        programId: "__none__",
       });
     }
     setErrors({});
@@ -120,6 +126,35 @@ export default function UserFormModal({
       setCompanies((data as Company[]) || []);
     });
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    listPrograms().then((data) => {
+      const activePrograms = data.filter((p) => p.active);
+      setPrograms(activePrograms);
+      if (activePrograms.length > 0 && formData.programId === "__none__") {
+        const first = activePrograms[0];
+        setFormData((prev) => ({ ...prev, programId: first.id }));
+        listProgramLevels(first.id).then(setProgramLevels);
+      }
+    }).catch((err) => console.error("failed to load programs", err));
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (formData.programId && formData.programId !== "__none__") {
+      listProgramLevels(formData.programId).then((lvl) => {
+        setProgramLevels(lvl);
+        setFormData((prev) => {
+          if (lvl.length > 0 && !lvl.some((l) => l.level === prev.nivelActual)) {
+            return { ...prev, nivelActual: lvl[0].level };
+          }
+          return prev;
+        });
+      }).catch(() => setProgramLevels([]));
+    } else {
+      setProgramLevels([]);
+    }
+  }, [formData.programId]);
 
   useEffect(() => {
     if (formData.companyId && formData.companyId !== "__none__") {
@@ -148,7 +183,7 @@ export default function UserFormModal({
       newErrors.celular = "Formato de celular inválido";
     }
 
-    const allowedNiveles = ["A1", "A2", "B1", "B2", "C1", "C2", "__none__"];
+    const allowedNiveles = [...programLevels.map((l) => l.level), "__none__"];
     if (formData.nivelActual && !allowedNiveles.includes(String(formData.nivelActual))) {
       newErrors.nivelActual = "Nivel inválido";
     }
@@ -216,7 +251,8 @@ export default function UserFormModal({
         password: formData.password,
         companyId: formData.companyId === "__none__" ? null : formData.companyId,
         areaId: formData.areaId === "__none__" ? null : formData.areaId,
-      } as unknown as Omit<User, 'id' | 'fechaRegistro'> & { password?: string; companyId?: string | null; areaId?: string | null };
+        programId: formData.programId === "__none__" ? null : formData.programId,
+      } as unknown as Omit<User, 'id' | 'fechaRegistro'> & { password?: string; companyId?: string | null; areaId?: string | null; programId?: string | null };
 
       await onSave(out);
       onClose();
@@ -369,6 +405,22 @@ export default function UserFormModal({
 
 
 
+        <div className="space-y-2">
+          <Label htmlFor="programa">Línea / Programa</Label>
+          <select
+            id="programa"
+            value={formData.programId}
+            onChange={(e) => setFormData(prev => ({ ...prev, programId: e.target.value }))}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="__none__">Sin línea asignada</option>
+            {programs.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">Línea de aprendizaje del usuario (Estándar, Kids, TOEFL...).</p>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="space-y-2">
             <Label htmlFor="nivel">Nivel Actual</Label>
@@ -377,12 +429,9 @@ export default function UserFormModal({
               nivelActual: e.target.value
             }))} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
               <option value="__none__">Sin nivel</option>
-              <option value="A1">A1 - Principiante</option>
-              <option value="A2">A2 - Elemental</option>
-              <option value="B1">B1 - Intermedio</option>
-              <option value="B2">B2 - Intermedio Alto</option>
-              <option value="C1">C1 - Avanzado</option>
-              <option value="C2">C2 - Competencia</option>
+              {programLevels.map(l => (
+                <option key={l.id} value={l.level}>{l.label}</option>
+              ))}
             </select>
           </div>
 

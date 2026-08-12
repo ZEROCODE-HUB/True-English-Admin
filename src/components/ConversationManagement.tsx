@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ProgramBadge } from "@/components/ui/ProgramBadge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
@@ -58,6 +59,7 @@ interface ConversationTopic {
   emoji?: string | null;
   points?: number;
   descripcion?: string | null;
+  programId?: string | null;
 }
 
 interface ConversationLog {
@@ -111,9 +113,10 @@ const buildAssignedTooltip = (assignments: AssignmentInfo[]) => {
 
 interface SortableTopicRowProps {
   topic: ConversationTopic;
+  programs: { id: string; name: string }[];
 }
 
-const SortableTopicRow = ({ topic }: SortableTopicRowProps) => {
+const SortableTopicRow = ({ topic, programs }: SortableTopicRowProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: topic.id });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -142,6 +145,7 @@ const SortableTopicRow = ({ topic }: SortableTopicRowProps) => {
         )}
       </div>
       <Badge variant="secondary" className="shrink-0">{topic.nivel}</Badge>
+      <ProgramBadge programId={topic.programId} programs={programs} className="shrink-0" />
       {!topic.activo && <Badge variant="outline" className="text-xs shrink-0">Inactivo</Badge>}
     </div>
   );
@@ -169,6 +173,8 @@ const ConversationManagement = () => {
   const [dateFilter, setDateFilter] = useState<Date | undefined>();
   const [userFilter, setUserFilter] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
+  const [programFilter, setProgramFilter] = useState("all");
+  const [programs, setPrograms] = useState<{ id: string; name: string }[]>([]);
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
     onConfirm: () => void;
@@ -189,6 +195,7 @@ const ConversationManagement = () => {
 
   const [topicSearch, setTopicSearch] = useState("");
   const [topicLevelFilter, setTopicLevelFilter] = useState("all");
+  const [topicProgramFilter, setTopicProgramFilter] = useState("all");
   const [topicSortBy, setTopicSortBy] = useState("sort_order");
   const [topicCount, setTopicCount] = useState(0);
   const [logSortBy, setLogSortBy] = useState("newest");
@@ -225,6 +232,7 @@ const ConversationManagement = () => {
       try {
         await fetchTopics(controller.signal);
         fetchCompanies();
+        fetchPrograms();
       } catch (err: any) {
         if (err?.name === 'AbortError') return;
         console.error('Error cargando datos de conversaciones IA', err);
@@ -235,7 +243,7 @@ const ConversationManagement = () => {
     };
     load();
     return () => controller.abort();
-  }, [debouncedTopicSearch, topicLevelFilter, topicSortBy]);
+  }, [debouncedTopicSearch, topicLevelFilter, topicProgramFilter, topicSortBy]);
 
   useEffect(() => {
     if (activeTab !== 'logs') return;
@@ -254,7 +262,7 @@ const ConversationManagement = () => {
     };
     load();
     return () => controller.abort();
-  }, [debouncedUserFilter, levelFilter, dateFilter, logSortBy, logPage, activeTab]);
+  }, [debouncedUserFilter, levelFilter, programFilter, dateFilter, logSortBy, logPage, activeTab]);
 
   const mapTopicsData = (data: any[]) => {
     const mapped: ConversationTopic[] = (data || []).map((t: any) => ({
@@ -265,7 +273,8 @@ const ConversationManagement = () => {
       nivel: t.level,
       vocabulario: (t.ai_topic_vocab || []).map((v: any) => ({ id: v.id, word: v.word, definition: v.definition, partOfSpeech: v.part_of_speech })),
       activo: t.status === 'active',
-      emoji: t.emoji || ''
+      emoji: t.emoji || '',
+      programId: t.program_id || null
     }));
     mapped.forEach((m, idx) => {
       const raw = ((data || [])[idx] || {}) as any;
@@ -278,13 +287,16 @@ const ConversationManagement = () => {
   const fetchTopics = async (signal?: AbortSignal) => {
     let query = supabase
       .from('ai_topics')
-      .select(`id, title, emoji, level, prompt, description, status, points, sort_order, ai_topic_vocab(id, word, definition, part_of_speech)`, { count: 'exact' });
+      .select(`id, title, emoji, level, prompt, description, status, points, sort_order, program_id, ai_topic_vocab(id, word, definition, part_of_speech)`, { count: 'exact' });
 
     if (debouncedTopicSearch) {
       query = query.or(`title.ilike.%${debouncedTopicSearch}%,description.ilike.%${debouncedTopicSearch}%`);
     }
     if (topicLevelFilter !== 'all') {
       query = query.eq('level', topicLevelFilter);
+    }
+    if (topicProgramFilter !== 'all') {
+      query = query.eq('program_id', topicProgramFilter);
     }
 
     switch (topicSortBy) {
@@ -328,6 +340,11 @@ const ConversationManagement = () => {
   const fetchCompanies = useCallback(async () => {
     const { data } = await supabase.from("companies").select("id, name, slug, active").eq("active", true).order("name");
     setCompanies((data as Company[]) || []);
+  }, []);
+
+  const fetchPrograms = useCallback(async () => {
+    const { data } = await supabase.from("programs").select("id, name").eq("active", true).order("sort_order").order("name");
+    setPrograms((data || []).map((p: any) => ({ id: p.id, name: p.name })));
   }, []);
 
   const handleEnterReorderMode = () => {
@@ -384,6 +401,9 @@ const ConversationManagement = () => {
 
     if (levelFilter !== 'all') {
       baseQuery = baseQuery.eq('level', levelFilter);
+    }
+    if (programFilter !== 'all') {
+      baseQuery = baseQuery.eq('program_id', programFilter);
     }
 
     if (dateFilter) {
@@ -579,7 +599,8 @@ const ConversationManagement = () => {
       vocabulario: [],
       activo: true,
       emoji: ''
-      , points: 0
+      , points: 1
+      , programId: null
     });
     setIsTopicModalOpen(true);
     setModalCompanyId("__none__");
@@ -668,7 +689,7 @@ const ConversationManagement = () => {
         if (editingTopic.id) {
           const { error } = await supabase
             .from('ai_topics')
-            .update({ title: editingTopic.titulo, prompt: editingTopic.promptSistema, description: editingTopic.descripcion || null, level: editingTopic.nivel, metadata: {}, status: editingTopic.activo ? 'active' : 'draft', emoji: editingTopic.emoji || null, points: (editingTopic as any).points ?? 0 })
+            .update({ title: editingTopic.titulo, prompt: editingTopic.promptSistema, description: editingTopic.descripcion || null, level: editingTopic.nivel, metadata: {}, status: editingTopic.activo ? 'active' : 'draft', emoji: editingTopic.emoji || null, points: 1, program_id: editingTopic.programId || null })
             .eq('id', editingTopic.id);
           if (error) throw error;
 
@@ -683,7 +704,7 @@ const ConversationManagement = () => {
           toast({ title: "Tema actualizado", description: "El tema ha sido actualizado correctamente." });
         } else {
           const maxSortOrder = topics.reduce((max, t) => Math.max(max, (t as any).sort_order ?? 0), 0);
-          const { data: created, error } = await supabase.from('ai_topics').insert({ title: editingTopic.titulo, prompt: editingTopic.promptSistema, description: editingTopic.descripcion || null, level: editingTopic.nivel, metadata: {}, status: editingTopic.activo ? 'active' : 'draft', emoji: editingTopic.emoji || null, points: (editingTopic as any).points ?? 0, sort_order: maxSortOrder + 1 }).select().single();
+          const { data: created, error } = await supabase.from('ai_topics').insert({ title: editingTopic.titulo, prompt: editingTopic.promptSistema, description: editingTopic.descripcion || null, level: editingTopic.nivel, metadata: {}, status: editingTopic.activo ? 'active' : 'draft', emoji: editingTopic.emoji || null, points: 1, program_id: editingTopic.programId || null, sort_order: maxSortOrder + 1 }).select().single();
           if (error) throw error;
           topicId = created.id;
 
@@ -836,7 +857,7 @@ const ConversationManagement = () => {
                 <SortableContext items={reorderedTopics.map(t => t.id)} strategy={verticalListSortingStrategy}>
                   <div className="space-y-2 w-full">
                     {reorderedTopics.map((topic) => (
-                      <SortableTopicRow key={topic.id} topic={topic} />
+                      <SortableTopicRow key={topic.id} topic={topic} programs={programs} />
                     ))}
                   </div>
                 </SortableContext>
@@ -846,7 +867,7 @@ const ConversationManagement = () => {
             <>
               <Card>
                 <CardContent className="pt-6">
-                  <div className="grid gap-4 md:grid-cols-4">
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                     <div>
                       <Label>Buscar</Label>
                       <div className="relative">
@@ -869,6 +890,20 @@ const ConversationManagement = () => {
                           <SelectItem value="all">Todos los niveles</SelectItem>
                           {levels.map((level) => (
                             <SelectItem key={level} value={level}>{level}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Línea</Label>
+                      <Select value={topicProgramFilter} onValueChange={(v) => setTopicProgramFilter(v)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todas las líneas</SelectItem>
+                          {programs.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -958,8 +993,9 @@ const ConversationManagement = () => {
                                 {hasAssignments && <Lock className="w-3.5 h-3.5 text-primary/60 shrink-0" />}
                                 {topic.titulo}
                               </CardTitle>
-                              <div className="mt-1 flex items-center gap-1">
+                              <div className="mt-1 flex items-center gap-1 flex-wrap">
                                 <Badge variant="secondary">{topic.nivel}</Badge>
+                                <ProgramBadge programId={topic.programId} programs={programs} showLabel />
                                 {((topic as any).points ?? 0) > 0 && (
                                   <Badge variant="outline">{(topic as any).points} pts</Badge>
                                 )}
@@ -1061,75 +1097,90 @@ const ConversationManagement = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-4 md:grid-cols-5">
-                <div>
-                  <Label htmlFor="user-filter">Usuario</Label>
-                  <Input
-                    id="user-filter"
-                    placeholder="Buscar por usuario..."
-                    value={userFilter}
-                    onChange={(e) => { setUserFilter(e.target.value); setLogPage(1); }}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="level-filter">Nivel</Label>
-                  <Select value={levelFilter} onValueChange={(v) => { setLevelFilter(v); setLogPage(1); }}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos los niveles</SelectItem>
-                      {levels.map((level) => (
-                        <SelectItem key={level} value={level}>{level}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label>Fecha</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start text-left font-normal">
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {dateFilter ? format(dateFilter, "PPP", { locale: es }) : "Seleccionar fecha"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0">
-                      <Calendar
-                        mode="single"
-                        selected={dateFilter}
-                        onSelect={(d) => { setDateFilter(d); setLogPage(1); }}
-                        initialFocus
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+                    <div>
+                      <Label htmlFor="user-filter">Usuario</Label>
+                      <Input
+                        id="user-filter"
+                        placeholder="Buscar por usuario..."
+                        value={userFilter}
+                        onChange={(e) => { setUserFilter(e.target.value); setLogPage(1); }}
                       />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-                <div>
-                  <Label>Ordenar por</Label>
-                  <Select value={logSortBy} onValueChange={(v) => { setLogSortBy(v); setLogPage(1); }}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="newest">Más recientes</SelectItem>
-                      <SelectItem value="oldest">Más antiguos</SelectItem>
-                      <SelectItem value="highest">Mayor puntuación</SelectItem>
-                      <SelectItem value="lowest">Menor puntuación</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-end">
-                  <Button variant="outline" onClick={() => {
-                    setUserFilter("");
-                    setLevelFilter("all");
-                    setDateFilter(undefined);
-                    setLogSortBy("newest");
-                    setLogPage(1);
-                  }}>
-                    Limpiar Filtros
-                  </Button>
-                </div>
-              </div>
+                    </div>
+                    <div>
+                      <Label htmlFor="level-filter">Nivel</Label>
+                      <Select value={levelFilter} onValueChange={(v) => { setLevelFilter(v); setLogPage(1); }}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todos los niveles</SelectItem>
+                          {levels.map((level) => (
+                            <SelectItem key={level} value={level}>{level}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label htmlFor="program-filter">Línea</Label>
+                      <Select value={programFilter} onValueChange={(v) => { setProgramFilter(v); setLogPage(1); }}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todas las líneas</SelectItem>
+                          {programs.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Fecha</Label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full justify-start text-left font-normal">
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {dateFilter ? format(dateFilter, "PPP", { locale: es }) : "Seleccionar fecha"}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0">
+                          <Calendar
+                            mode="single"
+                            selected={dateFilter}
+                            onSelect={(d) => { setDateFilter(d); setLogPage(1); }}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div>
+                      <Label>Ordenar por</Label>
+                      <Select value={logSortBy} onValueChange={(v) => { setLogSortBy(v); setLogPage(1); }}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="newest">Más recientes</SelectItem>
+                          <SelectItem value="oldest">Más antiguos</SelectItem>
+                          <SelectItem value="highest">Mayor puntuación</SelectItem>
+                          <SelectItem value="lowest">Menor puntuación</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-end">
+                      <Button variant="outline" onClick={() => {
+                        setUserFilter("");
+                        setLevelFilter("all");
+                        setProgramFilter("all");
+                        setDateFilter(undefined);
+                        setLogSortBy("newest");
+                        setLogPage(1);
+                      }}>
+                        Limpiar Filtros
+                      </Button>
+                    </div>
+                  </div>
             </CardContent>
           </Card>
 
@@ -1345,8 +1396,28 @@ const ConversationManagement = () => {
             </div>
 
             <div>
+              <Label htmlFor="topic-program">Línea / Programa</Label>
+              <Select
+                value={editingTopic?.programId || "__none__"}
+                onValueChange={(value) => setEditingTopic(prev => prev ? { ...prev, programId: value === "__none__" ? null : value } : null)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona la línea" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Estándar (por defecto)</SelectItem>
+                  {programs.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
               <Label htmlFor="topic-points">Puntos Ganados</Label>
-              <Input id="topic-points" type="number" min={0} step={1} value={String((editingTopic as any)?.points ?? 0)} onChange={(e) => setEditingTopic(prev => prev ? { ...prev, points: Math.max(0, parseInt(e.target.value || '0') || 0) } : null)} />
+              <div className="flex items-center gap-2">
+                <Input id="topic-points" type="number" value="1" disabled />
+                <Badge variant="secondary" className="text-xs font-normal">Fijo por práctica</Badge>
+              </div>
             </div>
 
             <div className="rounded-xl border border-primary/20 bg-gradient-to-br from-primary/[0.02] to-transparent p-5 space-y-4">

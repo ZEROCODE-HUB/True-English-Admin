@@ -39,6 +39,7 @@ export interface Lesson {
   notas: Note[];
   ejercicios: Exercise[];
   points?: number;
+  programId?: string | null;
 }
 
 // Minimal RPC payloads (expand later if needed)
@@ -161,4 +162,50 @@ export interface CompanyStats {
     in_progress: number;
     avg_completion_pct: number;
   };
+}
+
+// ===== Programas / Líneas =====
+
+export interface Program {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  has_level_progression: boolean;
+  active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  // RPC computed fields
+  level_count?: number;
+  lesson_count?: number;
+}
+
+export interface ProgramLevel {
+  id: string;
+  program_id: string;
+  level: string;
+  label: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface ProgramLevelConfig {
+  id: string;
+  program_id: string;
+  level: string;
+  points_required: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ToeflExamConfig {
+  id: string;
+  title: string;
+  duration_minutes: number;
+  passing_score: number;
+  question_count: number;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
 }

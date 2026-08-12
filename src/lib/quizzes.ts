@@ -4,6 +4,7 @@ export interface ChallengeCreatePayload {
   title: string;
   level: string;
   lesson_id?: string | null;
+  program_id?: string | null;
   active?: boolean;
   points?: number;
 }
@@ -14,11 +15,12 @@ export interface QuestionOptionPayload {
 }
 
 export interface QuestionCreatePayload {
-  kind: 'onboarding' | 'level' | 'lesson' | 'challenge';
+  kind: 'onboarding' | 'level' | 'lesson' | 'challenge' | 'toefl';
   title: string;
   lesson_id?: string | null;
   challenge_id?: string | null;
   level?: string | null;
+  program_id?: string | null;
   content?: any;
   image_url?: string | null;
   audio_url?: string | null;
@@ -50,7 +52,7 @@ export async function listLessons() {
 }
 
 export async function listQuestions(kind?: string, filters?: Record<string, any>) {
-  let builder = supabase.from('questions').select('id, title, kind, lesson_id, challenge_id, level, content, image_url, audio_url, correct_option_id, include_in_test, active, points, question_options!question_options_question_id_fkey(id, text, "order")');
+  let builder = supabase.from('questions').select('id, title, kind, lesson_id, challenge_id, level, program_id, content, image_url, audio_url, correct_option_id, include_in_test, active, points, question_options!question_options_question_id_fkey(id, text, "order")');
   if (kind) builder = builder.eq('kind', kind);
   if (filters) {
     Object.entries(filters).forEach(([k, v]) => {
@@ -64,17 +66,55 @@ export async function listQuestions(kind?: string, filters?: Record<string, any>
   return data;
 }
 
-export async function listOnboardingQuestions() {
+export async function listOnboardingQuestions(programId?: string | null) {
   // Explicit helper that fetches only onboarding questions with their options
-  const { data, error } = await supabase
+  let builder = supabase
     .from('questions')
     // include `level` so callers can count by level correctly
-    .select('id, title, kind, level, content, correct_option_id, active, question_options!question_options_question_id_fkey(id, text, "order")')
-    .eq('kind', 'onboarding')
+    .select('id, title, kind, level, program_id, content, correct_option_id, active, question_options!question_options_question_id_fkey(id, text, "order")')
+    .eq('kind', 'onboarding');
+  if (programId) builder = builder.eq('program_id', programId);
+  const { data, error } = await builder
     .order('created_at', { ascending: false })
     .order('order', { foreignTable: 'question_options', ascending: true });
   if (error) throw error;
   console.debug('listOnboardingQuestions count', (data || []).length);
+  return data;
+}
+
+export async function listToeflQuestions(programId?: string | null) {
+  let builder = supabase
+    .from('questions')
+    .select('id, title, kind, level, program_id, content, correct_option_id, active, question_options!question_options_question_id_fkey(id, text, "order")')
+    .eq('kind', 'toefl');
+  if (programId) builder = builder.eq('program_id', programId);
+  const { data, error } = await builder
+    .order('created_at', { ascending: false })
+    .order('order', { foreignTable: 'question_options', ascending: true });
+  if (error) throw error;
+  return data;
+}
+
+export async function getToeflExamConfig() {
+  const { data, error } = await supabase
+    .from('toefl_exam_config')
+    .select('*')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function upsertToeflExamConfig(config: { title?: string; duration_minutes?: number; passing_score?: number; question_count?: number; active?: boolean }) {
+  const existing = await getToeflExamConfig();
+  if (existing) {
+    const { data, error } = await supabase.from('toefl_exam_config').update(config).eq('id', existing.id).select().single();
+    if (error) throw error;
+    return data;
+  }
+  const { data, error } = await supabase.from('toefl_exam_config').insert([config]).select().single();
+  if (error) throw error;
   return data;
 }
 
@@ -122,6 +162,7 @@ export async function createQuestionWithOptions(payload: QuestionCreatePayload) 
         lesson_id: payload.lesson_id ?? null,
         challenge_id: payload.challenge_id ?? null,
         level: payload.level ?? null,
+        program_id: payload.program_id ?? null,
         content: payload.content ?? {},
         image_url: payload.image_url ?? null,
         audio_url: payload.audio_url ?? null,
@@ -187,6 +228,7 @@ export async function updateQuestionWithOptions(questionId: string, payload: Par
   if (payload.level !== undefined) patch.level = payload.level;
   if (payload.lesson_id !== undefined) patch.lesson_id = payload.lesson_id ?? null;
   if (payload.challenge_id !== undefined) patch.challenge_id = payload.challenge_id ?? null;
+  if (payload.program_id !== undefined) patch.program_id = payload.program_id ?? null;
   if (payload.content !== undefined) patch.content = payload.content;
   if (payload.image_url !== undefined) patch.image_url = payload.image_url ?? null;
   if (payload.audio_url !== undefined) patch.audio_url = payload.audio_url ?? null;
@@ -265,6 +307,9 @@ export default {
   listLessons,
   listQuestions,
   listOnboardingQuestions,
+  listToeflQuestions,
+  getToeflExamConfig,
+  upsertToeflExamConfig,
   createChallenge,
   getChallengeWithQuestions,
   createQuestionWithOptions,
