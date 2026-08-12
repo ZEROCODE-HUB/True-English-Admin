@@ -19,6 +19,7 @@ import Dashboard from "@/components/Dashboard";
 import UserManagement from "@/components/UserManagement";
 import CourseManagement from "@/components/CourseManagement";
 import QuizManagement from "@/components/QuizManagement";
+import ProgramManagement from "@/components/ProgramManagement";
 import ConversationManagement from "@/components/ConversationManagement";
 import PlansManagement from "@/components/PlansManagement";
 import SubscriptionsManagement from "@/components/SubscriptionsManagement";
@@ -63,6 +64,7 @@ const App = () => (
               <Route path="users" element={<UserManagement />} />
               <Route path="courses" element={<CourseManagement />} />
               <Route path="quizzes" element={<QuizManagement />} />
+              <Route path="programs" element={<ProgramManagement />} />
               <Route path="conversations" element={<ConversationManagement />} />
               <Route path="plans" element={<PlansManagement />} />
               <Route path="subscriptions" element={<SubscriptionsManagement />} />

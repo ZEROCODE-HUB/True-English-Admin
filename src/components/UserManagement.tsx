@@ -58,6 +58,8 @@ export interface User {
   estado?: string | null;
   tipoUsuario?: string | null;
   codigoInvitacion?: string | null;
+  programId?: string | null;
+  programName?: string | null;
 }
 
 // Invitations will be stored in `profiles` as rows with a `code` field.
@@ -80,6 +82,8 @@ export default function UserManagement() {
   const [searchInput, setSearchInput] = useState("");
   const [filterLevel, setFilterLevel] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterProgram, setFilterProgram] = useState("all");
+  const [programs, setPrograms] = useState<{ id: string; name: string }[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [showInvited, setShowInvited] = useState(false);
@@ -133,7 +137,7 @@ export default function UserManagement() {
     const to = from + pageSize - 1;
 
     try {
-      let query = supabase.from('profiles').select('*', { count: 'exact' }).order('created_at', { ascending: false });
+      let query = supabase.from('profiles').select('*, programs!program_id(name)', { count: 'exact' }).order('created_at', { ascending: false });
 
       const term = searchTerm.trim();
       if (term) {
@@ -143,6 +147,7 @@ export default function UserManagement() {
       }
 
       if (filterLevel && filterLevel !== 'all') query = query.eq('nivel_actual', filterLevel);
+      if (filterProgram && filterProgram !== 'all') query = query.eq('program_id', filterProgram);
       if (filterStatus && filterStatus !== 'all') query = query.eq('status', filterStatus);
 
       query = query.range(from, to);
@@ -167,6 +172,8 @@ export default function UserManagement() {
           // normalize stored tipo to lowercase for consistent comparisons
           tipoUsuario: p['tipo'] ? String(p['tipo']).toLowerCase() : null,
           codigoInvitacion: p['code'] ? String(p['code']) : null,
+          programId: p['program_id'] ? String(p['program_id']) : null,
+          programName: (p['programs'] as any)?.name ?? null,
         }));
         setUsers(mapped);
         setTotal(typeof count === 'number' ? count : mapped.length);
@@ -309,6 +316,7 @@ export default function UserManagement() {
       status: userData.estado ?? 'activo',
       tipo: (userData.tipoUsuario ? String(userData.tipoUsuario) : 'alumno').toLowerCase(),
       code: userData.codigoInvitacion ?? null,
+      program_id: userData.programId ?? null,
     };
 
     if (editingUser) {
@@ -361,6 +369,7 @@ export default function UserManagement() {
           status: userData.estado ?? 'activo',
           tipo: userData.tipoUsuario ?? 'alumno',
           code: userData.codigoInvitacion ?? null,
+          program_id: userData.programId ?? null,
         };
 
         // Try invoking via supabase client
@@ -429,7 +438,7 @@ export default function UserManagement() {
     // also refresh invited students when filters/search change
     fetchInvitedStudents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterLevel, filterStatus, searchTerm]);
+  }, [filterLevel, filterStatus, filterProgram, searchTerm]);
 
   // Fetch when page changes
   useEffect(() => {
@@ -437,10 +446,13 @@ export default function UserManagement() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
-  // fetch invited students + student progress on mount
+  // fetch invited students + student progress + programs on mount
   useEffect(() => {
     fetchInvitedStudents();
     fetchProgress();
+    supabase.from("programs").select("id, name, active").eq("active", true).order("sort_order").order("name").then(({ data }) => {
+      setPrograms((data || []).map((p: any) => ({ id: p.id, name: p.name })));
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -875,6 +887,17 @@ export default function UserManagement() {
                 <SelectItem value="C2">C2</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={filterProgram} onValueChange={setFilterProgram}>
+              <SelectTrigger className="w-[170px]">
+                <SelectValue placeholder="Línea" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las líneas</SelectItem>
+                {programs.map(p => (
+                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={filterStatus} onValueChange={setFilterStatus}>
               <SelectTrigger className="w-[150px]">
                 <SelectValue placeholder="Estado" />
@@ -964,6 +987,7 @@ export default function UserManagement() {
                 <TableHead className="whitespace-nowrap">Apellido</TableHead>
                 <TableHead className="whitespace-nowrap">Email</TableHead>
                 <TableHead className="min-w-[180px]">Empresa</TableHead>
+                <TableHead className="whitespace-nowrap">Línea</TableHead>
                 <TableHead className="whitespace-nowrap">Tipo</TableHead>
                 <TableHead className="whitespace-nowrap">Nivel</TableHead>
                 <TableHead className="text-center whitespace-nowrap">Puntos</TableHead>
@@ -989,6 +1013,13 @@ export default function UserManagement() {
                           <span className="text-muted-foreground"> — {membershipsByUser[user.id].areaName}</span>
                         )}
                       </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {user.programName ? (
+                      <Badge variant="outline" className="bg-blue-50 text-blue-800 border-blue-200">{user.programName}</Badge>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}

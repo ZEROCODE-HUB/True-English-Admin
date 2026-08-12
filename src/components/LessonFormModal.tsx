@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, Plus, X, Building2, MapPin, Globe } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -33,8 +33,9 @@ import {
   CommandGroup,
   CommandItem,
 } from "@/components/ui/command";
-import type { Lesson, Company, Area } from '@/types/db';
+import type { Lesson, Company, Area, Program, ProgramLevel } from '@/types/db';
 import { supabase } from "@/lib/supabase";
+import { listPrograms, listProgramLevels } from "@/lib/levels";
 
 interface AssignmentInfo {
   companyId: string;
@@ -57,14 +58,31 @@ interface LessonFormModalProps {
   initialAssignments?: AssignmentInfo[];
 }
 
+/** Niveles CEFR estándar cuando una lección no tiene línea (NULL = Estándar). */
+const FALLBACK_LEVELS: ProgramLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'].map((lvl, i) => ({
+  id: `std-${lvl}`,
+  program_id: '',
+  level: lvl,
+  label: lvl,
+  sort_order: i + 1,
+  created_at: '',
+}));
+
 export default function LessonFormModal({ isOpen, onClose, onSave, lesson, companies = [], initialAssignments = [] }: LessonFormModalProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({
     titulo: "",
     descripcion: "",
     nivelAsociado: "A1",
-    obligatoria: false
+    obligatoria: false,
+    programId: "__none__" as string,
   });
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [programLevels, setProgramLevels] = useState<ProgramLevel[]>([]);
+
+  // Ref espejo de formData para lecturas dentro de callbacks async (evita closures obsoletos).
+  const formDataRef = useRef(formData);
+  formDataRef.current = formData;
 
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [companyAreas, setCompanyAreas] = useState<Record<string, Area[]>>({});
@@ -77,14 +95,16 @@ export default function LessonFormModal({ isOpen, onClose, onSave, lesson, compa
         titulo: lesson.titulo,
         descripcion: lesson.descripcion,
         nivelAsociado: lesson.nivelAsociado,
-        obligatoria: lesson.obligatoria
+        obligatoria: lesson.obligatoria,
+        programId: lesson.programId || "__none__",
       });
     } else {
       setFormData({
         titulo: "",
         descripcion: "",
         nivelAsociado: "A1",
-        obligatoria: false
+        obligatoria: false,
+        programId: "__none__",
       });
     }
     const grouped: Record<string, string[]> = {};
@@ -117,6 +137,50 @@ export default function LessonFormModal({ isOpen, onClose, onSave, lesson, compa
       setCompanyAreas(prev => ({ ...prev, [cid]: (data as Area[]) || [] }));
     });
   }, [assignments]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    listPrograms().then((data) => {
+      const activePrograms = data.filter((p) => p.active && p.has_level_progression);
+      setPrograms(activePrograms);
+      // Regla NULL = Estándar: si la lección no tiene línea ("__none__"), se
+      // conserva tal cual. NO se auto-selecciona el primer programa de la lista.
+      if (activePrograms.length > 0 && formDataRef.current.programId !== "__none__") {
+        listProgramLevels(formDataRef.current.programId).then((lvl) => {
+          setProgramLevels(lvl);
+          if (lvl.length > 0 && !lvl.some((l) => l.level === formDataRef.current.nivelAsociado)) {
+            setFormData((inner) => ({ ...inner, nivelAsociado: lvl[0].level }));
+          }
+        });
+      }
+    }).catch((err) => console.error("failed to load programs", err));
+  }, [isOpen]);
+
+  useEffect(() => {
+    // Sin línea ("__none__") = Estándar: cargar los niveles del programa
+    // Estándar (slug 'estandar') o fallback CEFR A1-C2 si no existe.
+    if (formData.programId && formData.programId !== "__none__") {
+      listProgramLevels(formData.programId).then((lvl) => {
+        setProgramLevels(lvl);
+        if (lvl.length > 0 && !lvl.some((l) => l.level === formDataRef.current.nivelAsociado)) {
+          setFormData((prev) => ({ ...prev, nivelAsociado: lvl[0].level }));
+        }
+      }).catch(() => setProgramLevels([]));
+      return;
+    }
+
+    const standard = programs.find((p) => p.slug === "estandar");
+    if (standard) {
+      listProgramLevels(standard.id).then((lvl) => {
+        setProgramLevels(lvl);
+        if (lvl.length > 0 && !lvl.some((l) => l.level === formDataRef.current.nivelAsociado)) {
+          setFormData((prev) => ({ ...prev, nivelAsociado: lvl[0].level }));
+        }
+      }).catch(() => setProgramLevels(FALLBACK_LEVELS));
+    } else {
+      setProgramLevels(FALLBACK_LEVELS);
+    }
+  }, [formData.programId, programs]);
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -242,6 +306,26 @@ export default function LessonFormModal({ isOpen, onClose, onSave, lesson, compa
 
           <div className="grid grid-cols-[1fr_auto] gap-4 items-end">
             <div className="space-y-2">
+              <Label>Línea / Programa</Label>
+              <Select
+                value={formData.programId}
+                onValueChange={(value) => setFormData(prev => ({ ...prev, programId: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona una línea" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Estándar (por defecto)</SelectItem>
+                  {programs.map(p => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-[1fr_auto] gap-4 items-end">
+            <div className="space-y-2">
               <Label>Nivel Asociado</Label>
               <Select
                 value={formData.nivelAsociado}
@@ -251,12 +335,12 @@ export default function LessonFormModal({ isOpen, onClose, onSave, lesson, compa
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="A1">A1 - Principiante</SelectItem>
-                  <SelectItem value="A2">A2 - Elemental</SelectItem>
-                  <SelectItem value="B1">B1 - Intermedio</SelectItem>
-                  <SelectItem value="B2">B2 - Intermedio Alto</SelectItem>
-                  <SelectItem value="C1">C1 - Avanzado</SelectItem>
-                  <SelectItem value="C2">C2 - Competencia</SelectItem>
+                  {programLevels.map(l => (
+                    <SelectItem key={l.id} value={l.level}>{l.label}</SelectItem>
+                  ))}
+                  {programLevels.length === 0 && (
+                    <SelectItem value="A1" disabled>Sin niveles definidos</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>

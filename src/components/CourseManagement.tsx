@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ProgramBadge } from "@/components/ui/ProgramBadge";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -71,9 +72,10 @@ const buildAssignedTooltip = (assignments: AssignmentInfo[]) => {
   ).join("\n");
 };
 
-const SortableLessonRow = ({ lesson, assignments, onView, onEdit, onDelete }: {
+const SortableLessonRow = ({ lesson, assignments, programs, onView, onEdit, onDelete }: {
   lesson: Lesson;
   assignments: AssignmentInfo[];
+  programs: { id: string; name: string }[];
   onView: (l: Lesson) => void;
   onEdit: (l: Lesson) => void;
   onDelete: (id: string) => void;
@@ -107,6 +109,9 @@ const SortableLessonRow = ({ lesson, assignments, onView, onEdit, onDelete }: {
       </TableCell>
       <TableCell>
         <Badge className={levelColors[lesson.nivelAsociado as keyof typeof levelColors]}>{lesson.nivelAsociado}</Badge>
+      </TableCell>
+      <TableCell>
+        <ProgramBadge programId={lesson.programId} programs={programs} />
       </TableCell>
       <TableCell>
         <Badge variant={lesson.obligatoria ? "default" : "secondary"} className="text-xs">{lesson.obligatoria ? "Sí" : "No"}</Badge>
@@ -183,6 +188,8 @@ export default function CourseManagement() {
   const [assignmentsByLesson, setAssignmentsByLesson] = useState<Record<string, AssignmentInfo[]>>({});
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string>("all");
+  const [programs, setPrograms] = useState<{ id: string; name: string }[]>([]);
+  const [selectedProgram, setSelectedProgram] = useState<string>("all");
   const { toast } = useToast();
 
   const sensors = useSensors(
@@ -249,7 +256,8 @@ export default function CourseManagement() {
           fechaCreacion: l.created_at,
           sort_order: (l as any).sort_order ?? 0,
           notas: [],
-          ejercicios: []
+          ejercicios: [],
+          programId: (l as any).program_id ?? null,
         }));
         setLessons(mapped);
         fetchAssignments(mapped.map(l => l.id));
@@ -264,8 +272,14 @@ export default function CourseManagement() {
       setCompanies((data as Company[]) || []);
     };
 
+    const fetchPrograms = async () => {
+      const { data } = await supabase.from("programs").select("id, name, active").eq("active", true).order("sort_order").order("name");
+      setPrograms((data || []).map((p: any) => ({ id: p.id, name: p.name })));
+    };
+
     fetchLessons();
     fetchCompanies();
+    fetchPrograms();
   }, [toast]);
 
   const fetchAssignments = useCallback(async (lessonIds: string[]) => {
@@ -294,7 +308,8 @@ export default function CourseManagement() {
     const matchesLevel = selectedLevel === "all" || lesson.nivelAsociado === selectedLevel;
     const matchesCompany = selectedCompany === "all" ||
       (assignmentsByLesson[lesson.id] || []).some(a => a.companyId === selectedCompany);
-    return matchesSearch && matchesLevel && matchesCompany;
+    const matchesProgram = selectedProgram === "all" || lesson.programId === selectedProgram;
+    return matchesSearch && matchesLevel && matchesCompany && matchesProgram;
   });
 
   const handleCreateLesson = () => {
@@ -387,7 +402,8 @@ export default function CourseManagement() {
           title: lessonData.titulo,
           description: lessonData.descripcion,
           level: lessonData.nivelAsociado,
-          mandatory: lessonData.obligatoria
+          mandatory: lessonData.obligatoria,
+          program_id: lessonData.programId || null,
         }).eq('id', editingLesson.id);
         if (error) throw error;
 
@@ -429,7 +445,8 @@ export default function CourseManagement() {
           description: lessonData.descripcion,
           level: lessonData.nivelAsociado,
           mandatory: lessonData.obligatoria,
-          sort_order: maxSortOrder + 1
+          sort_order: maxSortOrder + 1,
+          program_id: lessonData.programId || null,
         }]).select().single();
         if (error) throw error;
 
@@ -537,6 +554,19 @@ export default function CourseManagement() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="w-48">
+              <Select value={selectedProgram} onValueChange={setSelectedProgram}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Filtrar por línea" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las líneas</SelectItem>
+                  {programs.map(p => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="w-52">
               <Select value={selectedCompany} onValueChange={setSelectedCompany}>
                 <SelectTrigger>
@@ -572,6 +602,7 @@ export default function CourseManagement() {
                       <TableHead>Título</TableHead>
                       <TableHead>Descripción</TableHead>
                       <TableHead>Nivel</TableHead>
+                      <TableHead>Línea</TableHead>
                       <TableHead>Obligatoria</TableHead>
                       <TableHead>Empresa</TableHead>
                       <TableHead className="text-center">Notas</TableHead>
@@ -585,6 +616,7 @@ export default function CourseManagement() {
                         key={lesson.id}
                         lesson={lesson}
                         assignments={assignmentsByLesson[lesson.id] || []}
+                        programs={programs}
                         onView={handleViewLesson}
                         onEdit={handleEditLesson}
                         onDelete={handleDeleteLesson}
@@ -601,6 +633,7 @@ export default function CourseManagement() {
                   <TableHead>Título</TableHead>
                   <TableHead>Descripción</TableHead>
                   <TableHead>Nivel</TableHead>
+                  <TableHead>Línea</TableHead>
                   <TableHead>Obligatoria</TableHead>
                   <TableHead>Empresa</TableHead>
                   <TableHead className="text-center">Notas</TableHead>
@@ -611,7 +644,7 @@ export default function CourseManagement() {
               <TableBody>
                 {filteredLessons.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-32 text-center">
+                    <TableCell colSpan={9} className="h-32 text-center">
                       <div className="flex flex-col items-center justify-center text-muted-foreground">
                         <SearchX className="w-10 h-10 mb-3 opacity-40" />
                         <p className="text-sm font-medium">No se encontraron lecciones</p>
@@ -642,6 +675,9 @@ export default function CourseManagement() {
                     </TableCell>
                     <TableCell>
                       <Badge className={levelColors[lesson.nivelAsociado as keyof typeof levelColors]}>{lesson.nivelAsociado}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <ProgramBadge programId={lesson.programId} programs={programs} />
                     </TableCell>
                     <TableCell>
                       <Badge variant={lesson.obligatoria ? "default" : "secondary"} className="text-xs">{lesson.obligatoria ? "Sí" : "No"}</Badge>

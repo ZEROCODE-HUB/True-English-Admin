@@ -39,7 +39,7 @@ Deno.serve(async (req: Request) => {
     try { body = JSON.parse(text); } catch (e) { return new Response(JSON.stringify({ error: 'INVALID_JSON', details: String(e) }), { status: 400, headers: { 'Content-Type': 'application/json', ...cors } }); }
 
     const {
-      email, password, name, last_name, phone, birth_date, nivel_actual, status, tipo, rol, code, id: forcedId
+      email, password, name, last_name, phone, birth_date, nivel_actual, status, tipo, rol, code, program_id, id: forcedId
     } = body;
 
     if (!email || !password) return new Response(JSON.stringify({ error: 'MISSING_FIELDS', details: 'email and password required' }), { status: 400, headers: { 'Content-Type': 'application/json', ...cors } });
@@ -69,6 +69,7 @@ Deno.serve(async (req: Request) => {
       tipo: (tipo ?? 'Alumno'),
       rol: (rol ?? 'usuario'),
       code: code ?? null,
+      program_id: program_id ?? null,
     };
 
     const { data: profileData, error: profileErr } = await admin.from('profiles').upsert(profileObj, { onConflict: 'id' });

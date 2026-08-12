@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 import { Plus, Edit, Trash2, Search, ToggleLeft, ToggleRight, Eye, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ProgramBadge } from "@/components/ui/ProgramBadge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -29,6 +31,7 @@ export interface Lesson {
   id: string;
   titulo: string;
   nivel: "A1" | "A2" | "B1" | "B2" | "C1" | "C2";
+  programId?: string | null;
 }
 export interface LevelQuestion {
   id: string;
@@ -61,6 +64,7 @@ export interface Challenge {
   activo: boolean;
 
   points?: number;
+  programId?: string | null;
 }
 export interface ChallengeQuestion {
   id: string;
@@ -95,7 +99,7 @@ export default function QuizManagement() {
   // Helper refresh functions
   const refreshOnboarding = async () => {
     try {
-      const data = await quizzes.listOnboardingQuestions();
+      const data = await quizzes.listOnboardingQuestions(activeProgramId);
       setOnboardingRawData(data || []);
       const mapped: OnboardingQuestion[] = (data || []).map((q: any) => {
         const opts = q.question_options || [];
@@ -120,7 +124,9 @@ export default function QuizManagement() {
   const refreshLevelQuestions = async (level: string | null) => {
     if (!level) return;
     try {
-      const data = await quizzes.listQuestions('level', { level });
+      const filters: any = { level };
+      if (activeProgramId) filters.program_id = activeProgramId;
+      const data = await quizzes.listQuestions('level', filters);
       const mapped: LevelQuestion[] = (data || []).map((q: any) => ({
         id: q.id,
         nivel: q.level ?? level,
@@ -169,15 +175,14 @@ export default function QuizManagement() {
         lessonId: c.lesson_id ?? c.lessonId ?? '',
         lessonTitle: c.lesson_title ?? '',
         activo: typeof c.active === 'boolean' ? c.active : (c.activo ?? true),
-        points: (c.points ?? c.puntos ?? 0) as number
+        points: (c.points ?? c.puntos ?? 0) as number,
+        programId: c.program_id ?? null
       }));
       setChallenges(mapped);
     } catch (err) {
       console.error('Failed to refresh challenges', err);
     }
   };
-
-  // Onboarding per-level helpers
   const [selectedOnboardingLevel, setSelectedOnboardingLevel] = useState<"A1" | "A2" | "B1" | "B2" | "C1" | "C2" | null>(null);
   const [onboardingCountsByLevel, setOnboardingCountsByLevel] = useState<Record<string, number>>({});
   const [initialLessonParam, setInitialLessonParam] = useState<string | null>(null);
@@ -190,7 +195,9 @@ export default function QuizManagement() {
   const refreshOnboardingByLevel = async (level?: string | null) => {
     try {
       if (!level) return;
-      const data = await quizzes.listQuestions('onboarding', { level });
+      const filters: any = { level };
+      if (activeProgramId) filters.program_id = activeProgramId;
+      const data = await quizzes.listQuestions('onboarding', filters);
       const mapped: OnboardingQuestion[] = (data || []).map((q: any) => {
         const opts = q.question_options || [];
         const correctIdx = q.correct_option_id ? (opts.findIndex((o: any) => o.id === q.correct_option_id) + 1) : 1;
@@ -236,7 +243,7 @@ export default function QuizManagement() {
   const loadOnboardingCounts = async () => {
     try {
       // Fetch only onboarding questions to avoid mixing with 'level' quizzes
-      const data = await quizzes.listOnboardingQuestions();
+      const data = await quizzes.listOnboardingQuestions(activeProgramId);
       const counts: Record<string, number> = {};
       (data || []).forEach((q: any) => {
         // defensive: ensure we only count items that are explicitly onboarding
@@ -252,7 +259,9 @@ export default function QuizManagement() {
 
   const loadLevelCounts = async () => {
     try {
-      const data = await quizzes.listQuestions('level');
+      const filters: any = {};
+      if (activeProgramId) filters.program_id = activeProgramId;
+      const data = await quizzes.listQuestions('level', filters);
       const counts: Record<string, number> = {};
       (data || []).forEach((q: any) => {
         if (q.kind && q.kind !== 'level') return;
@@ -307,11 +316,39 @@ export default function QuizManagement() {
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
   const [lessonSearchTerm, setLessonSearchTerm] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
+  const [programFilter, setProgramFilter] = useState("all");
+  const [programs, setPrograms] = useState<{ id: string; name: string; slug: string; has_level_progression: boolean }[]>([]);
+  const activeProgramId = programFilter === 'all' ? null : programFilter;
+  const resolveProgramId = (fallback?: string | null): string | null =>
+    fallback || activeProgramId;
+  const guardProgram = (pId: string | null | undefined): pId is string => {
+    if (pId) return true;
+    toast({ title: 'Selecciona una línea', description: 'Elige un programa/línea para guardar la pregunta.' });
+    return false;
+  };
+
+  // Active tab + TOEFL-specific line selector (only lines without level progression)
+  const [activeTab, setActiveTab] = useState("onboarding");
+  const [toeflProgramFilter, setToeflProgramFilter] = useState("all");
+  const activeToeflProgramId = toeflProgramFilter === 'all' ? null : toeflProgramFilter;
+  const nonProgressionPrograms = programs.filter(p => !p.has_level_progression);
+  useEffect(() => {
+    if (toeflProgramFilter === 'all' && nonProgressionPrograms.length === 1) {
+      setToeflProgramFilter(nonProgressionPrograms[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [programs]);
 
   // Challenge state
   const [selectedChallenge, setSelectedChallenge] = useState<Challenge | null>(null);
   const [challengeSearchTerm, setChallengeSearchTerm] = useState("");
   const [challengeLevelFilter, setChallengeLevelFilter] = useState("all");
+
+  // TOEFL simulacro state
+  const [toeflConfig, setToeflConfig] = useState<{ id?: string; title: string; duration_minutes: number; passing_score: number; question_count: number; active: boolean } | null>(null);
+  const [toeflQuestions, setToeflQuestions] = useState<OnboardingQuestion[]>([]);
+  const [isToeflModalOpen, setIsToeflModalOpen] = useState(false);
+  const [editingToeflQuestion, setEditingToeflQuestion] = useState<OnboardingQuestion | null>(null);
 
   const [isOnboardingModalOpen, setIsOnboardingModalOpen] = useState(false);
   const [isLevelModalOpen, setIsLevelModalOpen] = useState(false);
@@ -414,7 +451,8 @@ export default function QuizManagement() {
           lessonId: c.lesson_id ?? c.lessonId ?? '',
           lessonTitle: c.lesson_title ?? '',
           activo: typeof c.active === 'boolean' ? c.active : (c.activo ?? true),
-          points: (c.points ?? c.puntos ?? 0) as number
+          points: (c.points ?? c.puntos ?? 0) as number,
+          programId: c.program_id ?? null
         }));
         setChallenges(mapped);
       } catch (err: any) {
@@ -475,7 +513,8 @@ export default function QuizManagement() {
         const mapped: Lesson[] = (data || []).map((l: any) => ({
           id: l.id,
           titulo: l.title ?? l.titulo ?? '',
-          nivel: l.level ?? l.nivel ?? 'A1'
+          nivel: l.level ?? l.nivel ?? 'A1',
+          programId: l.program_id ?? null
         }));
         setLessons(mapped);
         // load lesson counts so cards show numbers immediately
@@ -486,15 +525,51 @@ export default function QuizManagement() {
       }
     };
     loadLessons();
+    const loadPrograms = async () => {
+      const { data } = await supabase.from("programs").select("id, name, slug, has_level_progression").eq("active", true).order("sort_order").order("name");
+      setPrograms((data || []).map((p: any) => ({ id: p.id, name: p.name, slug: p.slug, has_level_progression: !!p.has_level_progression })));
+    };
+    loadPrograms();
     return () => { mounted = false };
-  }, []);
+  }, [activeProgramId]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const [config, questions] = await Promise.all([
+          quizzes.getToeflExamConfig(),
+          quizzes.listToeflQuestions(activeToeflProgramId),
+        ]);
+        if (!mounted) return;
+        setToeflConfig(config || { title: 'Simulacro TOEFL', duration_minutes: 60, passing_score: 0, question_count: 0, active: true });
+        setToeflQuestions((questions || []).map((q: any) => {
+          const opts = q.question_options || [];
+          const correctIdx = q.correct_option_id ? (opts.findIndex((o: any) => o.id === q.correct_option_id) + 1) : 1;
+          return {
+            id: q.id,
+            pregunta: q.title ?? q.title,
+            opcion1: opts?.[0]?.text ?? '',
+            opcion2: opts?.[1]?.text ?? '',
+            opcion3: opts?.[2]?.text ?? '',
+            opcion4: opts?.[3]?.text ?? '',
+            respuestaCorrecta: correctIdx || 1,
+            incluirEnTest: q.include_in_test ?? true
+          };
+        }));
+      } catch (err) {
+        console.error('failed to load toefl data', err);
+      }
+    })();
+    return () => { mounted = false };
+  }, [activeToeflProgramId]);
 
   useEffect(() => {
     // Load onboarding questions
     let mounted = true;
     const loadOnboarding = async () => {
       try {
-        const data = await quizzes.listOnboardingQuestions();
+        const data = await quizzes.listOnboardingQuestions(activeProgramId);
         if (!mounted) return;
         // store raw data for debugging if needed
         setOnboardingRawData(data || []);
@@ -525,7 +600,7 @@ export default function QuizManagement() {
     };
     loadOnboarding();
     return () => { mounted = false };
-  }, []);
+  }, [activeProgramId]);
 
 
   useEffect(() => {
@@ -534,7 +609,9 @@ export default function QuizManagement() {
     const loadLevel = async () => {
       if (!selectedLevel) return setLevelQuestions([]);
       try {
-        const data = await quizzes.listQuestions('level', { level: selectedLevel });
+        const filters: any = { level: selectedLevel };
+        if (activeProgramId) filters.program_id = activeProgramId;
+        const data = await quizzes.listQuestions('level', filters);
         if (!mounted) return;
         const mapped: LevelQuestion[] = (data || []).map((q: any) => ({
           id: q.id,
@@ -556,7 +633,7 @@ export default function QuizManagement() {
     // also ensure level counts are loaded
     loadLevelCounts();
     return () => { mounted = false };
-  }, [selectedLevel]);
+  }, [selectedLevel, activeProgramId]);
 
   useEffect(() => {
     // Load lesson questions when a lesson is selected
@@ -585,16 +662,24 @@ export default function QuizManagement() {
     loadLessonQuestions();
     return () => { mounted = false };
   }, [selectedLesson]);
+  const estProgramId = programs.find(p => p.slug === 'estandar')?.id ?? null;
+  const matchesProgramId = (programId: string | null | undefined) =>
+    programFilter === "all" ||
+    (programId != null && programId !== '' && programId === programFilter) ||
+    (programFilter === estProgramId && (programId == null || programId === ''));
+
   const filteredLessons = lessons.filter(lesson => {
     const matchesSearch = lesson.titulo.toLowerCase().includes(lessonSearchTerm.toLowerCase());
     const matchesLevel = levelFilter === "all" || lesson.nivel === levelFilter;
-    return matchesSearch && matchesLevel;
+    const matchesProgram = matchesProgramId(lesson.programId);
+    return matchesSearch && matchesLevel && matchesProgram;
   });
 
   const filteredChallenges = challenges.filter(challenge => {
     const matchesSearch = challenge.titulo.toLowerCase().includes(challengeSearchTerm.toLowerCase());
     const matchesLevel = challengeLevelFilter === "all" || challenge.nivel === challengeLevelFilter;
-    return matchesSearch && matchesLevel;
+    const matchesProgram = matchesProgramId((challenge as any).programId);
+    return matchesSearch && matchesLevel && matchesProgram;
   });
 
   const selectedLessonQuestions = selectedLesson ? lessonQuestions.filter(q => q.lessonId === selectedLesson.id) : [];
@@ -796,18 +881,115 @@ export default function QuizManagement() {
       },
     });
   };
+  const handleSaveToeflConfig = () => {
+    (async () => {
+      if (!toeflConfig) return;
+      try {
+        await quizzes.upsertToeflExamConfig({
+          title: toeflConfig.title,
+          duration_minutes: 1440,
+          passing_score: Math.max(0, toeflConfig.passing_score),
+          question_count: Math.max(0, toeflConfig.question_count),
+          active: toeflConfig.active,
+        });
+        toast({ title: 'Configuración guardada', description: 'La configuración del simulacro TOEFL fue actualizada.' });
+      } catch (err) {
+        console.error(err);
+        toast({ title: 'Error', description: 'No se pudo guardar la configuración del simulacro TOEFL.' });
+      }
+    })();
+  };
+
+  const handleToggleToeflQuestion = (questionId: string) => {
+    (async () => {
+      try {
+        const current = toeflQuestions.find(q => q.id === questionId);
+        const newVal = !current?.incluirEnTest;
+        await quizzes.updateQuestion(questionId, { include_in_test: newVal });
+        const data = await quizzes.listToeflQuestions(activeToeflProgramId);
+        setToeflQuestions((data || []).map((q: any) => {
+          const opts = q.question_options || [];
+          const correctIdx = q.correct_option_id ? (opts.findIndex((o: any) => o.id === q.correct_option_id) + 1) : 1;
+          return {
+            id: q.id,
+            pregunta: q.title ?? q.title,
+            opcion1: opts?.[0]?.text ?? '',
+            opcion2: opts?.[1]?.text ?? '',
+            opcion3: opts?.[2]?.text ?? '',
+            opcion4: opts?.[3]?.text ?? '',
+            respuestaCorrecta: correctIdx || 1,
+            incluirEnTest: q.include_in_test ?? true
+          };
+        }));
+        toast({ title: 'Estado actualizado', description: 'El estado de la pregunta fue actualizado.' });
+      } catch (err) {
+        console.error(err);
+        toast({ title: 'Error', description: 'No se pudo actualizar la pregunta.' });
+      }
+    })();
+  };
+
+  const handleDeleteToeflQuestion = (questionId: string) => {
+    setDeleteDialog({
+      isOpen: true,
+      onConfirm: async () => {
+        try {
+          await quizzes.deleteQuestion(questionId);
+          const data = await quizzes.listToeflQuestions(activeToeflProgramId);
+          setToeflQuestions((data || []).map((q: any) => {
+            const opts = q.question_options || [];
+            const correctIdx = q.correct_option_id ? (opts.findIndex((o: any) => o.id === q.correct_option_id) + 1) : 1;
+            return {
+              id: q.id,
+              pregunta: q.title ?? q.title,
+              opcion1: opts?.[0]?.text ?? '',
+              opcion2: opts?.[1]?.text ?? '',
+              opcion3: opts?.[2]?.text ?? '',
+              opcion4: opts?.[3]?.text ?? '',
+              respuestaCorrecta: correctIdx || 1,
+              incluirEnTest: q.include_in_test ?? true
+            };
+          }));
+          toast({ title: 'Pregunta eliminada', description: 'La pregunta TOEFL fue eliminada correctamente.' });
+        } catch (err) {
+          console.error(err);
+          toast({ title: 'Error', description: 'No se pudo eliminar la pregunta.' });
+        }
+      },
+    });
+  };
+
   return <div className="space-y-6">
-    <div>
-      <h1 className="text-3xl font-bold text-foreground">Gestión de Quizzes</h1>
-      <p className="text-muted-foreground">Administra las preguntas para todos los tipos de evaluaciones</p>
+    <div className="flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <h1 className="text-3xl font-bold text-foreground">Gestión de Quizzes</h1>
+        <p className="text-muted-foreground">Administra las preguntas para todos los tipos de evaluaciones</p>
+      </div>
+      {activeTab !== 'toefl' && (
+        <div className="flex items-center gap-2">
+          <Label htmlFor="global-program">Línea</Label>
+          <Select value={programFilter} onValueChange={setProgramFilter}>
+            <SelectTrigger id="global-program" className="w-[220px]">
+              <SelectValue placeholder="Seleccionar línea" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las líneas</SelectItem>
+              {programs.map((p) => (
+                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
     </div>
 
-    <Tabs defaultValue="onboarding" className="w-full">
-      <TabsList className="grid w-full grid-cols-4">
+    <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <TabsList className="grid w-full grid-cols-5">
         <TabsTrigger value="onboarding">Quiz de Onboarding</TabsTrigger>
         <TabsTrigger value="level">Quiz de Nivel</TabsTrigger>
         <TabsTrigger value="lessons">Quiz de Lección</TabsTrigger>
         <TabsTrigger value="challenges">Desafío</TabsTrigger>
+        <TabsTrigger value="toefl">Simulacro TOEFL</TabsTrigger>
       </TabsList>
 
       <TabsContent value="onboarding" className="space-y-6">
@@ -1182,6 +1364,7 @@ export default function QuizManagement() {
                     <TableRow>
                       <TableHead>Título</TableHead>
                       <TableHead>Nivel</TableHead>
+                      <TableHead>Línea</TableHead>
                       <TableHead>Puntos</TableHead>
                       <TableHead>Lección Asociada</TableHead>
                       <TableHead>Estado</TableHead>
@@ -1194,6 +1377,9 @@ export default function QuizManagement() {
                         <TableCell className="font-medium">{challenge.titulo}</TableCell>
                         <TableCell>
                           <Badge variant="outline">{challenge.nivel}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <ProgramBadge programId={(challenge as any).programId} programs={programs} />
                         </TableCell>
                         <TableCell>
                           <div className="text-sm">{(challenge as any).points ?? 0} pts</div>
@@ -1248,7 +1434,7 @@ export default function QuizManagement() {
                     ))}
                     {filteredChallenges.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center text-muted-foreground py-6">
+                        <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
                           No se encontraron desafíos
                         </TableCell>
                       </TableRow>
@@ -1374,6 +1560,120 @@ export default function QuizManagement() {
           </>
         )}
       </TabsContent>
+
+      <TabsContent value="toefl" className="space-y-6">
+        <Card className="shadow-card">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">Línea del Simulacro TOEFL</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">Solo se muestran las líneas sin progresión por niveles</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="toefl-program">Línea</Label>
+              <Select value={toeflProgramFilter} onValueChange={setToeflProgramFilter}>
+                <SelectTrigger id="toefl-program" className="w-[220px]">
+                  <SelectValue placeholder="Seleccionar línea" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las líneas</SelectItem>
+                  {nonProgressionPrograms.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardHeader>
+        </Card>
+
+        <Card className="shadow-card">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">Configuración del Simulacro TOEFL</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">Parámetros generales del examen de práctica</p>
+            </div>
+            <Button onClick={handleSaveToeflConfig} className="bg-primary hover:bg-primary-hover">Guardar Configuración</Button>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div>
+                <Label htmlFor="toefl-title">Título</Label>
+                <Input id="toefl-title" value={toeflConfig?.title ?? ''} onChange={(e) => setToeflConfig(prev => prev ? { ...prev, title: e.target.value } : prev)} />
+              </div>
+              <div>
+                <Label htmlFor="toefl-passing">Puntaje aprobatorio (%)</Label>
+                <Input id="toefl-passing" type="number" min={0} max={100} value={String(toeflConfig?.passing_score ?? 0)} onChange={(e) => setToeflConfig(prev => prev ? { ...prev, passing_score: Math.min(100, Math.max(0, parseInt(e.target.value || '0') || 0)) } : prev)} />
+              </div>
+              <div>
+                <Label htmlFor="toefl-count">Cantidad de preguntas</Label>
+                <Input id="toefl-count" type="number" min={0} value={String(toeflConfig?.question_count ?? 0)} onChange={(e) => setToeflConfig(prev => prev ? { ...prev, question_count: Math.max(0, parseInt(e.target.value || '0') || 0) } : prev)} />
+              </div>
+              <div>
+                <Label>Activo</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => setToeflConfig(prev => prev ? { ...prev, active: !prev.active } : prev)}
+                >
+                  {toeflConfig?.active ? <><ToggleRight className="w-5 h-5 mr-2 text-success" /> Activo</> : <><ToggleLeft className="w-5 h-5 mr-2 text-muted-foreground" /> Inactivo</>}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-card">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>Banco de Preguntas TOEFL ({toeflQuestions.length})</CardTitle>
+            <Button onClick={() => { setEditingToeflQuestion(null); setIsToeflModalOpen(true); }} className="bg-primary hover:bg-primary-hover">
+              <Plus className="w-4 h-4 mr-2" />
+              Nueva Pregunta
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Pregunta</TableHead>
+                  <TableHead>Respuesta Correcta</TableHead>
+                  <TableHead>Incluir en Simulacro</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {toeflQuestions.map(question => (
+                  <TableRow key={question.id}>
+                    <TableCell className="max-w-md"><div className="truncate">{question.pregunta}</div></TableCell>
+                    <TableCell><Badge variant="outline">Opción {question.respuestaCorrecta}</Badge></TableCell>
+                    <TableCell>
+                      <Button variant="ghost" size="sm" onClick={() => handleToggleToeflQuestion(question.id)} className={question.incluirEnTest ? "text-success" : "text-muted-foreground"}>
+                        {question.incluirEnTest ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
+                      </Button>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => { setEditingToeflQuestion(question); setIsToeflModalOpen(true); }}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => handleDeleteToeflQuestion(question.id)} className="text-destructive hover:text-destructive">
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {toeflQuestions.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
+                      No hay preguntas TOEFL. Crea la primera para el simulacro.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </TabsContent>
     </Tabs>
 
     <DeleteConfirmationDialog
@@ -1386,10 +1686,13 @@ export default function QuizManagement() {
 
     <OnboardingQuizModal isOpen={isOnboardingModalOpen} onClose={() => setIsOnboardingModalOpen(false)} onSave={async (questionData) => {
       try {
+        const programId = resolveProgramId();
+        if (!guardProgram(programId)) return;
         const payload: any = {
           kind: 'onboarding' as const,
           title: questionData.pregunta,
           level: selectedOnboardingLevel ?? undefined,
+          program_id: programId,
           content: {},
           active: true,
           options: [
@@ -1434,10 +1737,13 @@ export default function QuizManagement() {
     <OnboardingQuizModal isOpen={isLevelModalOpen} onClose={() => setIsLevelModalOpen(false)} onSave={async (questionData) => {
       if (!selectedLevel) return;
       try {
+        const programId = resolveProgramId();
+        if (!guardProgram(programId)) return;
         const payload = {
           kind: 'level' as const,
           title: questionData.pregunta,
           level: selectedLevel,
+          program_id: programId,
           content: {},
           active: true,
           options: [
@@ -1480,10 +1786,14 @@ export default function QuizManagement() {
 
     <LessonQuizModal isOpen={isLessonModalOpen} onClose={() => setIsLessonModalOpen(false)} onSave={async (questionData) => {
       try {
+        const lessonForQuiz = lessons.find(l => l.id === questionData.lessonId);
+        const programId = resolveProgramId(lessonForQuiz?.programId);
+        if (!guardProgram(programId)) return;
         const payload = {
           kind: 'lesson' as const,
           title: questionData.pregunta,
           lesson_id: questionData.lessonId,
+          program_id: programId,
           content: {},
           active: questionData.activa,
           points: (questionData as any).points ?? 0,
@@ -1541,10 +1851,14 @@ export default function QuizManagement() {
             audio_url = up.publicURL ?? (`/storage/${up.path}`);
           }
 
+          const programId = resolveProgramId(selectedChallenge?.programId);
+          if (!guardProgram(programId)) return;
+
           const payload = {
             kind: 'challenge' as const,
             title: data.pregunta,
             challenge_id: (data as any).challengeId ?? selectedChallenge.id,
+            program_id: programId,
             content: {},
             image_url,
             audio_url,
@@ -1596,10 +1910,14 @@ export default function QuizManagement() {
       lessons={lessons}
       onSave={async (data) => {
         try {
+          const lessonForCh = lessons.find(l => l.id === data.lessonId);
+          const programId = resolveProgramId(lessonForCh?.programId);
+          if (!guardProgram(programId)) return;
           const payload = {
             title: data.titulo,
             level: data.nivel,
             lesson_id: data.lessonId || null,
+            program_id: programId,
             active: data.activo ?? true,
             points: (data as any).points ?? 0
           };
@@ -1613,5 +1931,52 @@ export default function QuizManagement() {
         }
       }}
     />
+    <OnboardingQuizModal isOpen={isToeflModalOpen} onClose={() => setIsToeflModalOpen(false)} onSave={async (questionData) => {
+      try {
+        const programId = activeToeflProgramId;
+        if (!guardProgram(programId)) return;
+        const payload = {
+          kind: 'toefl' as const,
+          title: questionData.pregunta,
+          program_id: programId,
+          content: {},
+          active: true,
+          include_in_test: true,
+          options: [
+            { text: questionData.opcion1, order: 0 },
+            { text: questionData.opcion2, order: 1 },
+            { text: questionData.opcion3, order: 2 },
+            { text: questionData.opcion4, order: 3 }
+          ],
+          correct_option_index: questionData.respuestaCorrecta
+        };
+        if (editingToeflQuestion) {
+          await quizzes.updateQuestionWithOptions(editingToeflQuestion.id, payload as any);
+          toast({ title: 'Pregunta actualizada', description: 'La pregunta TOEFL fue actualizada.' });
+        } else {
+          await quizzes.createQuestionWithOptions(payload as any);
+          toast({ title: 'Pregunta creada', description: 'La nueva pregunta TOEFL fue creada correctamente.' });
+        }
+        const data = await quizzes.listToeflQuestions(activeToeflProgramId);
+        setToeflQuestions((data || []).map((q: any) => {
+          const opts = q.question_options || [];
+          const correctIdx = q.correct_option_id ? (opts.findIndex((o: any) => o.id === q.correct_option_id) + 1) : 1;
+          return {
+            id: q.id,
+            pregunta: q.title ?? q.title,
+            opcion1: opts?.[0]?.text ?? '',
+            opcion2: opts?.[1]?.text ?? '',
+            opcion3: opts?.[2]?.text ?? '',
+            opcion4: opts?.[3]?.text ?? '',
+            respuestaCorrecta: correctIdx || 1,
+            incluirEnTest: q.include_in_test ?? true
+          };
+        }));
+      } catch (err) {
+        console.error('failed to save toefl question', err);
+        toast({ title: 'Error', description: 'No se pudo guardar la pregunta TOEFL' });
+      }
+      setIsToeflModalOpen(false);
+    }} question={editingToeflQuestion} />
   </div>;
 }
