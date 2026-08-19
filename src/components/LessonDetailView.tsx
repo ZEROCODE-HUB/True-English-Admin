@@ -21,7 +21,6 @@ import { CSS } from '@dnd-kit/utilities';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -773,12 +772,25 @@ export default function LessonDetailView({ lesson, onBack, onUpdate }: LessonDet
             </div>
             <div className="space-y-2">
               <Label>Descripción</Label>
-              <Textarea
-                value={noteForm.descripcion}
-                onChange={(e) => setNoteForm(prev => ({ ...prev, descripcion: e.target.value }))}
-                rows={6}
-                placeholder="Escribe el contenido de la nota aquí..."
-              />
+              <div className="border rounded-md">
+                <ReactQuill
+                  value={noteForm.descripcion}
+                  onChange={(value) => setNoteForm(prev => ({ ...prev, descripcion: value }))}
+                  placeholder="Escribe el contenido de la nota aquí..."
+                  theme="snow"
+                  modules={{
+                    toolbar: [
+                      [{ 'header': [1, 2, 3, false] }],
+                      ['bold', 'italic', 'underline', 'strike'],
+                      [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+                      [{ 'color': [] }, { 'background': [] }],
+                      ['link'],
+                      ['clean']
+                    ],
+                  }}
+                  style={{ minHeight: '150px' }}
+                />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -1129,9 +1141,14 @@ function ContentItem({
 
             {item.type === 'note' ? (
               <div>
-                <p className="text-sm text-muted-foreground mb-2">
-                  {(item as Note).descripcion}
-                </p>
+                {/* Render rich text content (stored as HTML) */}
+                {(item as Note).descripcion ? (
+                  // Sanitize HTML before rendering to avoid XSS
+                  <div
+                    className="prose prose-sm min-h-[4rem] max-h-24 overflow-hidden mb-2"
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize((item as Note).descripcion) }}
+                  />
+                ) : null}
                 <div className="flex gap-2">
                   {(item as Note).imagenes.length > 0 && (
                     <Badge variant="outline">
