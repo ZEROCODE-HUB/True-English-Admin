@@ -751,40 +751,40 @@ export default function CourseManagement() {
                 )}
               </TableBody>
             </Table>
-            {totalLessons > 0 && (
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-4">
-                <div className="flex items-center gap-4">
-                  <div className="text-sm text-muted-foreground">
-                    Mostrando {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, totalLessons)} de {totalLessons}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Por página</span>
-                    <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
-                      <SelectTrigger className="w-[90px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="10">10</SelectItem>
-                        <SelectItem value="20">20</SelectItem>
-                        <SelectItem value="50">50</SelectItem>
-                        <SelectItem value="100">100</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+          )}
+          {!reorderMode && totalLessons > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-4">
+              <div className="flex items-center gap-4">
+                <div className="text-sm text-muted-foreground">
+                  Mostrando {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, totalLessons)} de {totalLessons}
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button variant="outline" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
-                    Anterior
-                  </Button>
-                  <div className="text-sm">
-                    Página {page} / {totalLessonPages}
-                  </div>
-                  <Button variant="outline" disabled={page >= totalLessonPages} onClick={() => setPage(p => Math.min(totalLessonPages, p + 1))}>
-                    Siguiente
-                  </Button>
+                  <span className="text-sm text-muted-foreground">Por página</span>
+                  <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                    <SelectTrigger className="w-[90px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="10">10</SelectItem>
+                      <SelectItem value="20">20</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                      <SelectItem value="100">100</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-            )}
+              <div className="flex items-center gap-2">
+                <Button variant="outline" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+                  Anterior
+                </Button>
+                <div className="text-sm">
+                  Página {page} / {totalLessonPages}
+                </div>
+                <Button variant="outline" disabled={page >= totalLessonPages} onClick={() => setPage(p => Math.min(totalLessonPages, p + 1))}>
+                  Siguiente
+                </Button>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>
