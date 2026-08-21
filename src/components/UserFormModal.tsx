@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -512,7 +513,14 @@ export default function UserFormModal({
             disabled={submitting}
             className={`bg-primary hover:bg-primary-hover ${submitting ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            {submitting ? (user ? 'Actualizando...' : 'Creando...') : (user ? 'Actualizar Usuario' : 'Crear Usuario')}
+            {submitting ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                {user ? 'Actualizando...' : 'Creando...'}
+              </>
+            ) : (
+              (user ? 'Actualizar Usuario' : 'Crear Usuario')
+            )}
           </Button>
         </div>
       </form>

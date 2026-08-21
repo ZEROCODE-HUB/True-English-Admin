@@ -102,7 +102,7 @@ export default function UserManagement() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const pageSize = 5;
+  const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
 
   // Avance de alumnos (RPC admin_get_students_progress): mapa por id para la tabla + arreglo completo para export
@@ -438,7 +438,7 @@ export default function UserManagement() {
     // also refresh invited students when filters/search change
     fetchInvitedStudents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterLevel, filterStatus, filterProgram, searchTerm]);
+  }, [filterLevel, filterStatus, filterProgram, searchTerm, pageSize]);
 
   // Fetch when page changes
   useEffect(() => {
@@ -577,6 +577,8 @@ export default function UserManagement() {
       toast({ title: 'Error', description: 'Por favor completa todos los campos.', variant: 'destructive' });
       return;
     }
+
+    setInviteSending(true);
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(inviteEmail)) {
@@ -1114,15 +1116,31 @@ export default function UserManagement() {
       )}
 
       {/* Pagination controls (moved to bottom) */}
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">
-          {total > 0 ? (
-            <span>
-              Mostrando {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, total)} de {total}
-            </span>
-          ) : (
-            <span>No hay usuarios</span>
-          )}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-4">
+          <div className="text-sm text-muted-foreground">
+            {total > 0 ? (
+              <span>
+                Mostrando {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, total)} de {total}
+              </span>
+            ) : (
+              <span>No hay usuarios</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Por página</span>
+            <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+              <SelectTrigger className="w-[90px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10</SelectItem>
+                <SelectItem value="20">20</SelectItem>
+                <SelectItem value="50">50</SelectItem>
+                <SelectItem value="100">100</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">

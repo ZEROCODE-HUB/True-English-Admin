@@ -175,6 +175,8 @@ export default function CourseManagement() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedLevel, setSelectedLevel] = useState<string>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
@@ -243,7 +245,7 @@ export default function CourseManagement() {
   useEffect(() => {
     const fetchLessons = async () => {
       try {
-        const { data, error } = await supabase.rpc('get_lessons', { p_search: '', p_level: 'all', p_limit: 100, p_offset: 0 });
+        const { data, error } = await supabase.rpc('get_lessons', { p_search: '', p_level: 'all', p_limit: 1000, p_offset: 0 });
         if (error) throw error;
         const payload = data as { data?: RPCLessonCore[]; count?: number } | null;
         const items = payload?.data || [];
@@ -311,6 +313,16 @@ export default function CourseManagement() {
     const matchesProgram = selectedProgram === "all" || lesson.programId === selectedProgram;
     return matchesSearch && matchesLevel && matchesCompany && matchesProgram;
   });
+
+  // Client-side pagination over the filtered set
+  const totalLessons = filteredLessons.length;
+  const totalLessonPages = Math.max(1, Math.ceil(totalLessons / pageSize));
+  const pageLessons = filteredLessons.slice((page - 1) * pageSize, page * pageSize);
+
+  // Reset to first page whenever filters/search or page size change
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, selectedLevel, selectedCompany, selectedProgram, pageSize]);
 
   const handleCreateLesson = () => {
     setEditingLesson(null);
@@ -653,7 +665,7 @@ export default function CourseManagement() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                filteredLessons.map((lesson) => {
+                pageLessons.map((lesson) => {
                   const assigns = assignmentsByLesson[lesson.id] || [];
                   const hasAssignments = assigns.length > 0;
                   const visibleBadges = assigns.slice(0, MAX_VISIBLE_BADGES);
@@ -739,6 +751,40 @@ export default function CourseManagement() {
                 )}
               </TableBody>
             </Table>
+            {totalLessons > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-4">
+                <div className="flex items-center gap-4">
+                  <div className="text-sm text-muted-foreground">
+                    Mostrando {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, totalLessons)} de {totalLessons}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Por página</span>
+                    <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                      <SelectTrigger className="w-[90px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="10">10</SelectItem>
+                        <SelectItem value="20">20</SelectItem>
+                        <SelectItem value="50">50</SelectItem>
+                        <SelectItem value="100">100</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+                    Anterior
+                  </Button>
+                  <div className="text-sm">
+                    Página {page} / {totalLessonPages}
+                  </div>
+                  <Button variant="outline" disabled={page >= totalLessonPages} onClick={() => setPage(p => Math.min(totalLessonPages, p + 1))}>
+                    Siguiente
+                  </Button>
+                </div>
+              </div>
+            )}
           )}
         </CardContent>
       </Card>
