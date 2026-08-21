@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Plus, Edit, Trash2, Search, ToggleLeft, ToggleRight, Eye, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -185,6 +185,8 @@ export default function QuizManagement() {
   };
   const [selectedOnboardingLevel, setSelectedOnboardingLevel] = useState<"A1" | "A2" | "B1" | "B2" | "C1" | "C2" | null>(null);
   const [onboardingCountsByLevel, setOnboardingCountsByLevel] = useState<Record<string, number>>({});
+  // Request token to discard stale onboarding fetches (race-condition protection)
+  const onboardingFetchToken = useRef(0);
   const [initialLessonParam, setInitialLessonParam] = useState<string | null>(null);
   const [initialChallengeParam, setInitialChallengeParam] = useState<string | null>(null);
   // Level counts (only for 'level' kind quizzes)
@@ -195,9 +197,13 @@ export default function QuizManagement() {
   const refreshOnboardingByLevel = async (level?: string | null) => {
     try {
       if (!level) return;
+      // Capture a request token so a slow/late response from a previous level
+      // cannot overwrite the state of a newer selection.
+      const token = ++onboardingFetchToken.current;
       const filters: any = { level };
       if (activeProgramId) filters.program_id = activeProgramId;
       const data = await quizzes.listQuestions('onboarding', filters);
+      if (token !== onboardingFetchToken.current) return;
       const mapped: OnboardingQuestion[] = (data || []).map((q: any) => {
         const opts = q.question_options || [];
         const correctIdx = q.correct_option_id ? (opts.findIndex((o: any) => o.id === q.correct_option_id) + 1) : 1;
@@ -212,6 +218,7 @@ export default function QuizManagement() {
           incluirEnTest: q.include_in_test ?? false
         };
       });
+      if (token !== onboardingFetchToken.current) return;
       setOnboardingQuestions(mapped);
       // also update counts map
       await loadOnboardingCounts();
@@ -240,10 +247,10 @@ export default function QuizManagement() {
     }
   };
 
-  const loadOnboardingCounts = async () => {
+  const loadOnboardingCounts = async (providedData?: any[]) => {
     try {
       // Fetch only onboarding questions to avoid mixing with 'level' quizzes
-      const data = await quizzes.listOnboardingQuestions(activeProgramId);
+      const data = providedData ?? (await quizzes.listOnboardingQuestions(activeProgramId));
       const counts: Record<string, number> = {};
       (data || []).forEach((q: any) => {
         // defensive: ensure we only count items that are explicitly onboarding
@@ -565,7 +572,11 @@ export default function QuizManagement() {
   }, [activeToeflProgramId]);
 
   useEffect(() => {
-    // Load onboarding questions
+    // Load onboarding data. The mount fetch is ONLY used to compute the
+    // per-level counts shown on the level-selection cards. It must NOT populate
+    // `onboardingQuestions` (the table) — that is done exclusively by
+    // refreshOnboardingByLevel, which filters by level. Otherwise the unfiltered
+    // 63-question result could race and overwrite a level-filtered table.
     let mounted = true;
     const loadOnboarding = async () => {
       try {
@@ -573,27 +584,10 @@ export default function QuizManagement() {
         if (!mounted) return;
         // store raw data for debugging if needed
         setOnboardingRawData(data || []);
-        const mapped: OnboardingQuestion[] = (data || []).map((q: any) => {
-          const opts = q.question_options || [];
-          const correctIdx = q.correct_option_id ? (opts.findIndex((o: any) => o.id === q.correct_option_id) + 1) : 1;
-          return {
-            id: q.id,
-            pregunta: q.title ?? q.title,
-            opcion1: opts?.[0]?.text ?? '',
-            opcion2: opts?.[1]?.text ?? '',
-            opcion3: opts?.[2]?.text ?? '',
-            opcion4: opts?.[3]?.text ?? '',
-            respuestaCorrecta: correctIdx || 1,
-            incluirEnTest: q.include_in_test ?? false
-          };
-        });
-        setOnboardingQuestions(mapped);
-        console.debug('onboarding questions loaded:', mapped.length, mapped);
-        toast({ title: 'Onboarding cargado', description: `${mapped.length} preguntas cargadas desde la base de datos.` });
-        // additional debug: if zero, print raw data
+        console.debug('onboarding raw loaded:', (data || []).length);
         if ((data || []).length === 0) console.debug('raw onboarding data from API is empty', data);
-        // load counts per level for onboarding selector
-        await loadOnboardingCounts();
+        // load counts per level for onboarding selector (uses this same data)
+        await loadOnboardingCounts(data);
       } catch (err) {
         console.error('failed to load onboarding questions', err);
       }

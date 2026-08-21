@@ -36,7 +36,7 @@ export async function listChallenges() {
   const { data, error } = await supabase
     .from('challenges')
     .select('*')
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: true });
 
   if (error) throw error;
   return data;
@@ -46,7 +46,7 @@ export async function listLessons() {
   const { data, error } = await supabase
     .from('lessons')
     .select('*')
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: true });
   if (error) throw error;
   return data;
 }
@@ -60,7 +60,7 @@ export async function listQuestions(kind?: string, filters?: Record<string, any>
       else builder = builder.eq(k, v as any);
     });
   }
-  const { data, error } = await builder.order('created_at', { ascending: false }).order('order', { foreignTable: 'question_options', ascending: true });
+  const { data, error } = await builder.order('created_at', { ascending: true }).order('order', { foreignTable: 'question_options', ascending: true });
   if (error) throw error;
   console.debug('listQuestions', { kind, filters, count: (data || []).length });
   return data;
@@ -75,7 +75,7 @@ export async function listOnboardingQuestions(programId?: string | null) {
     .eq('kind', 'onboarding');
   if (programId) builder = builder.eq('program_id', programId);
   const { data, error } = await builder
-    .order('created_at', { ascending: false })
+    .order('created_at', { ascending: true })
     .order('order', { foreignTable: 'question_options', ascending: true });
   if (error) throw error;
   console.debug('listOnboardingQuestions count', (data || []).length);
@@ -89,7 +89,7 @@ export async function listToeflQuestions(programId?: string | null) {
     .eq('kind', 'toefl');
   if (programId) builder = builder.eq('program_id', programId);
   const { data, error } = await builder
-    .order('created_at', { ascending: false })
+    .order('created_at', { ascending: true })
     .order('order', { foreignTable: 'question_options', ascending: true });
   if (error) throw error;
   return data;
@@ -145,7 +145,7 @@ export async function getChallengeWithQuestions(challengeId: string) {
       'id, title, kind, content, correct_option_id, active, question_options!question_options_question_id_fkey(id, text, "order")'
     )
     .eq('challenge_id', challengeId)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: true });
   if (qErr) throw qErr;
 
   return { challenge, questions };
