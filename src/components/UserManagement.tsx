@@ -640,21 +640,33 @@ export default function UserManagement() {
       const androidLink = "https://play.google.com/store/apps/details?id=YOUR_ANDROID_PACKAGE";
 
       const html = `
-        <div style="font-family:Arial,Helvetica,sans-serif;color:#0b2540;">
-          <h2 style="margin-top:0">Invitación a TrueEnglish Academy</h2>
-          <p>Hola ${inviteName},</p>
-          <p>Este es tu código para registrarte en la aplicación TrueEnglish:</p>
-          <p style="font-size:20px;font-weight:700;color:#015ea8;">${insertObj.code}</p>
-
-          <p>Descárgala aquí:</p>
-          <p style="display:flex;gap:10px;margin:12px 0;">
-            <a href="${iosLink}" style="display:inline-block;padding:10px 14px;background:#015ea8;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">App Store (iOS)</a>
-            <a href="${androidLink}" style="display:inline-block;padding:10px 14px;background:#0a66c2;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Google Play (Android)</a>
-          </p>
-
-          <p>Introduce este código en la aplicación (pantalla de código de estudiante) para activar tu acceso.</p>
-
-          <p style="margin-top:18px">Si tienes problemas, visita <a href="${window.location.origin}" style="color:#015ea8;text-decoration:underline;">nuestra web</a> o contacta con soporte.</p>
+        <div style="margin:0;padding:0;background:#f3f6f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0b2540;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="min-width:100%;background:#f3f6f9;padding:36px 12px;">
+            <tr><td align="center">
+              <table role="presentation" cellpadding="0" cellspacing="0" width="680" style="max-width:680px;width:100%;background:#ffffff;border-radius:12px;box-shadow:0 10px 30px rgba(2,6,23,0.06);overflow:hidden;border:1px solid #e6eef6;">
+                <tr><td style="padding:22px 24px;background:#015ea8;color:#ffffff;">
+                  <img src="https://vymijjuxxrpxtrxjnoky.supabase.co/storage/v1/object/public/lesson-media/assets/logo-true-english-1.png" alt="TrueEnglish" width="44" height="44" style="display:block;border-radius:8px;float:left;margin-right:12px;" onerror="this.style.display='none'" />
+                  <h1 style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">TrueEnglish Academy</h1>
+                  <div style="font-size:12px;opacity:0.95;">Invitación</div>
+                </td></tr>
+                <tr><td style="padding:32px 28px;">
+                  <h2 style="margin:0 0 12px;font-size:20px;color:#0b2540;">Hola ${inviteName},</h2>
+                  <p style="margin:0 0 24px;font-size:15px;color:#334155;line-height:1.5;">Este es tu código para registrarte en la aplicación TrueEnglish:</p>
+                  <div style="background:#f0f7ff;border:1px solid #d0e8ff;border-radius:12px;padding:24px;text-align:center;margin-bottom:24px;">
+                    <p style="margin:0 0 8px;font-size:13px;color:#475569;">Tu código de acceso</p>
+                    <div style="font-size:42px;font-weight:700;letter-spacing:12px;color:#015ea8;font-family:monospace;">${insertObj.code}</div>
+                  </div>
+                  <p style="font-size:15px;color:#334155;line-height:1.5;margin:0 0 20px;">Descárgala aquí:</p>
+                  <p style="display:flex;gap:10px;margin:0 0 24px;">
+                    <a href="${iosLink}" style="display:inline-block;padding:10px 14px;background:#015ea8;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">App Store (iOS)</a>
+                    <a href="${androidLink}" style="display:inline-block;padding:10px 14px;background:#0a66c2;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Google Play (Android)</a>
+                  </p>
+                  <p style="font-size:14px;color:#475569;line-height:1.5;margin:0;">Introduce este código en la aplicación (pantalla de código de estudiante) para activar tu acceso.</p>
+                </td></tr>
+                <tr><td style="padding:16px 20px;background:#fbfdff;border-top:1px solid #eef6ff;font-size:12px;color:#94a3b8;">© 2026 TrueEnglish Academy. Todos los derechos reservados. &nbsp;&nbsp;<a href="https://trueenglish.vercel.app" style="color:#015ea8;font-weight:600;">Ir a la app</a></td></tr>
+              </table>
+            </td></tr>
+          </table>
         </div>`;
 
       const text = `Hola ${inviteName},\n\nEste es tu codigo para registrarte en TrueEnglish: ${insertObj.code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nIntroduce este codigo en la app (pantalla de codigo de estudiante) para activar tu acceso.`;
@@ -737,21 +749,33 @@ export default function UserManagement() {
       const androidLink = "https://play.google.com/store/apps/details?id=YOUR_ANDROID_PACKAGE";
 
       const html = `
-        <div style="font-family:Arial,Helvetica,sans-serif;color:#0b2540;">
-          <h2 style="margin-top:0">Invitación a TrueEnglish Academy</h2>
-          <p>Hola ${inviteName || inviteEmail},</p>
-          <p>Este es tu código para registrarte en la aplicación TrueEnglish:</p>
-          <p style="font-size:20px;font-weight:700;color:#015ea8;">${code}</p>
-
-          <p>Descárgala aquí:</p>
-          <p style="display:flex;gap:10px;margin:12px 0;">
-            <a href="${iosLink}" style="display:inline-block;padding:10px 14px;background:#015ea8;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">App Store (iOS)</a>
-            <a href="${androidLink}" style="display:inline-block;padding:10px 14px;background:#0a66c2;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Google Play (Android)</a>
-          </p>
-
-          <p>Introduce este código en la aplicación (pantalla de código de estudiante) para activar tu acceso.</p>
-
-          <p style="margin-top:18px">Si tienes problemas, visita <a href="${window.location.origin}" style="color:#015ea8;text-decoration:underline;">nuestra web</a> o contacta con soporte.</p>
+        <div style="margin:0;padding:0;background:#f3f6f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0b2540;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="min-width:100%;background:#f3f6f9;padding:36px 12px;">
+            <tr><td align="center">
+              <table role="presentation" cellpadding="0" cellspacing="0" width="680" style="max-width:680px;width:100%;background:#ffffff;border-radius:12px;box-shadow:0 10px 30px rgba(2,6,23,0.06);overflow:hidden;border:1px solid #e6eef6;">
+                <tr><td style="padding:22px 24px;background:#015ea8;color:#ffffff;">
+                  <img src="https://vymijjuxxrpxtrxjnoky.supabase.co/storage/v1/object/public/lesson-media/assets/logo-true-english-1.png" alt="TrueEnglish" width="44" height="44" style="display:block;border-radius:8px;float:left;margin-right:12px;" onerror="this.style.display='none'" />
+                  <h1 style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">TrueEnglish Academy</h1>
+                  <div style="font-size:12px;opacity:0.95;">Invitación</div>
+                </td></tr>
+                <tr><td style="padding:32px 28px;">
+                  <h2 style="margin:0 0 12px;font-size:20px;color:#0b2540;">Hola ${inviteName || inviteEmail},</h2>
+                  <p style="margin:0 0 24px;font-size:15px;color:#334155;line-height:1.5;">Este es tu código para registrarte en la aplicación TrueEnglish:</p>
+                  <div style="background:#f0f7ff;border:1px solid #d0e8ff;border-radius:12px;padding:24px;text-align:center;margin-bottom:24px;">
+                    <p style="margin:0 0 8px;font-size:13px;color:#475569;">Tu código de acceso</p>
+                    <div style="font-size:42px;font-weight:700;letter-spacing:12px;color:#015ea8;font-family:monospace;">${code}</div>
+                  </div>
+                  <p style="font-size:15px;color:#334155;line-height:1.5;margin:0 0 20px;">Descárgala aquí:</p>
+                  <p style="display:flex;gap:10px;margin:0 0 24px;">
+                    <a href="${iosLink}" style="display:inline-block;padding:10px 14px;background:#015ea8;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">App Store (iOS)</a>
+                    <a href="${androidLink}" style="display:inline-block;padding:10px 14px;background:#0a66c2;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Google Play (Android)</a>
+                  </p>
+                  <p style="font-size:14px;color:#475569;line-height:1.5;margin:0;">Introduce este código en la aplicación (pantalla de código de estudiante) para activar tu acceso.</p>
+                </td></tr>
+                <tr><td style="padding:16px 20px;background:#fbfdff;border-top:1px solid #eef6ff;font-size:12px;color:#94a3b8;">© 2026 TrueEnglish Academy. Todos los derechos reservados. &nbsp;&nbsp;<a href="https://trueenglish.vercel.app" style="color:#015ea8;font-weight:600;">Ir a la app</a></td></tr>
+              </table>
+            </td></tr>
+          </table>
         </div>`;
 
       const text = `Hola ${inviteName || inviteEmail},\n\nEste es tu codigo para registrarte en TrueEnglish: ${code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nIntroduce este codigo en la app (pantalla de codigo de estudiante) para activar tu acceso.`;
