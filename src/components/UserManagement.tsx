@@ -245,7 +245,7 @@ export default function UserManagement() {
     const to = from + pageSize - 1;
 
     try {
-      const query = await buildFilteredQuery('*, programs!program_id(name)', 'exact');
+      let query = await buildFilteredQuery('*, programs!program_id(name)', 'exact');
       query = query.order('created_at', { ascending: false }).range(from, to);
 
       const { data, error, count } = await query;
