@@ -158,8 +158,11 @@ export default function UserManagement() {
   // Construye la query base de perfiles aplicando búsqueda y filtros (sin rango ni select).
   // Devuelve una query de supabase sobre la tabla `profiles` lista para .select()/.range().
   type MemberRow = { profile_id: string; company_id?: string };
-  const buildFilteredQuery = async () => {
-    let query = supabase.from('profiles');
+  // Construye la query de perfiles aplicando búsqueda y filtros.
+  // IMPORTANTE: los métodos de filtro (.or/.eq/.in/.not) solo existen en el
+  // builder DESPUÉS de llamar a .select(), por eso se hace .select() primero.
+  const buildFilteredQuery = async (selectStr: string, count?: 'exact') => {
+    let query = supabase.from('profiles').select(selectStr, count ? { count } : undefined);
 
     const term = searchTerm.trim();
     if (term) {
@@ -185,7 +188,7 @@ export default function UserManagement() {
           if (mErr) throw mErr;
           const memberIds = Array.from(new Set((memberRows || []).map((r: MemberRow) => r.profile_id)));
           if (memberIds.length > 0) {
-            query = query.not('id', 'in', `(${memberIds.join(',')})`);
+            query = query.not('id', 'in', memberIds);
           }
         } else if (selectedCompanyIds.length > 0 && !includeNone) {
           // Solo empresas específicas
@@ -196,7 +199,7 @@ export default function UserManagement() {
           if (mErr) throw mErr;
           const ids = Array.from(new Set((memberRows || []).map((r: MemberRow) => r.profile_id)));
           if (ids.length > 0) {
-            query = query.in('id', `(${ids.join(',')})`);
+            query = query.in('id', ids);
           } else {
             query = query.eq('id', '__no_match__');
           }
@@ -215,7 +218,7 @@ export default function UserManagement() {
             )
           );
           if (excludedIds.length > 0) {
-            query = query.not('id', 'in', `(${excludedIds.join(',')})`);
+            query = query.not('id', 'in', excludedIds);
           }
         }
       } catch (e) {
@@ -229,8 +232,8 @@ export default function UserManagement() {
 
   // Devuelve todos los IDs de perfiles que coinciden con los filtros actuales
   const getFilteredProfileIds = async (): Promise<string[]> => {
-    const base = await buildFilteredQuery();
-    const { data } = await base.select('id');
+    const query = await buildFilteredQuery('id');
+    const { data } = await query;
     return (data || []).map((r: { id: string }) => String(r.id));
   };
 
@@ -242,11 +245,8 @@ export default function UserManagement() {
     const to = from + pageSize - 1;
 
     try {
-      const base = await buildFilteredQuery();
-      let query = base
-        .select('*, programs!program_id(name)', { count: 'exact' })
-        .order('created_at', { ascending: false });
-      query = query.range(from, to);
+      const query = await buildFilteredQuery('*, programs!program_id(name)', 'exact');
+      query = query.order('created_at', { ascending: false }).range(from, to);
 
       const { data, error, count } = await query;
 
