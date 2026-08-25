@@ -636,9 +636,6 @@ export default function UserManagement() {
         return;
       }
 
-      const RESEND_API_KEY = import.meta.env.VITE_RESEND_API_KEY as string;
-      const FROM_EMAIL = import.meta.env.VITE_FROM_EMAIL as string;
-
       const iosLink = "https://apps.apple.com/app/idYOUR_IOS_APP_ID";
       const androidLink = "https://play.google.com/store/apps/details?id=YOUR_ANDROID_PACKAGE";
 
@@ -662,35 +659,28 @@ export default function UserManagement() {
 
       const text = `Hola ${inviteName},\n\nEste es tu codigo para registrarte en TrueEnglish: ${insertObj.code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nIntroduce este codigo en la app (pantalla de codigo de estudiante) para activar tu acceso.`;
 
-      const payload = {
-        from: FROM_EMAIL,
-        to: inviteEmail,
-        subject: `Invitación a TrueEnglish Academy - ${insertObj.code}`,
-        html,
-        text,
-      };
-
       // La invitación YA quedó creada arriba. El envío del email es best-effort:
-      // Resend no admite llamadas desde el navegador (CORS), así que si falla NO
-      // tratamos toda la invitación como fallida — avisamos y queda el botón
-      // "Reenviar" (o compartir el código que se muestra en el modal).
+      // usamos la Edge Function `send-email` (lado servidor, dominio verificado
+      // zerocode.la vía Resend). Si falla NO tratamos la invitación como fallida.
       let emailOk = false;
       let emailErrMsg = '';
       try {
-        const resp = await fetch("https://api.resend.com/emails", {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
-          body: JSON.stringify(payload),
+        const { data, error } = await supabase.functions.invoke('send-email', {
+          body: {
+            to: inviteEmail,
+            subject: `Invitación a TrueEnglish Academy - ${insertObj.code}`,
+            html,
+            text,
+          },
         });
-        const data = await resp.json().catch(() => null);
-        if (resp.ok) {
+        if (!error && data?.ok) {
           emailOk = true;
         } else {
-          console.error('resend error', data);
-          emailErrMsg = String(data?.error?.message || data?.error || `Error ${resp.status}`);
+          console.error('send-email error', error ?? data);
+          emailErrMsg = String((data as any)?.body?.message || error?.message || 'Error al enviar');
         }
       } catch (mailErr) {
-        console.error('resend fetch failed', mailErr);
+        console.error('send-email failed', mailErr);
         emailErrMsg = 'el servicio de email no respondió';
       }
 
@@ -743,9 +733,6 @@ export default function UserManagement() {
         return;
       }
 
-      const RESEND_API_KEY = import.meta.env.VITE_RESEND_API_KEY as string;
-      const FROM_EMAIL = import.meta.env.VITE_FROM_EMAIL as string;
-
       const iosLink = "https://apps.apple.com/app/idYOUR_IOS_APP_ID";
       const androidLink = "https://play.google.com/store/apps/details?id=YOUR_ANDROID_PACKAGE";
 
@@ -769,31 +756,25 @@ export default function UserManagement() {
 
       const text = `Hola ${inviteName || inviteEmail},\n\nEste es tu codigo para registrarte en TrueEnglish: ${code}\n\nDescarga la app para iOS: ${iosLink} \nAndroid: ${androidLink}\n\nIntroduce este codigo en la app (pantalla de codigo de estudiante) para activar tu acceso.`;
 
-      const payload = {
-        from: FROM_EMAIL,
-        to: inviteEmail,
-        subject: `Invitación a TrueEnglish Academy - ${code}`,
-        html,
-        text,
-      };
-
       let emailOk = false;
       let emailErrMsg = '';
       try {
-        const resp = await fetch("https://api.resend.com/emails", {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${RESEND_API_KEY}` },
-          body: JSON.stringify(payload),
+        const { data, error } = await supabase.functions.invoke('send-email', {
+          body: {
+            to: inviteEmail,
+            subject: `Invitación a TrueEnglish Academy - ${code}`,
+            html,
+            text,
+          },
         });
-        const dataResp = await resp.json().catch(() => null);
-        if (resp.ok) {
+        if (!error && data?.ok) {
           emailOk = true;
         } else {
-          console.error('resend resend error', dataResp);
-          emailErrMsg = String(dataResp?.error?.message || dataResp?.error || `Error ${resp.status}`);
+          console.error('send-email error', error ?? data);
+          emailErrMsg = String((data as any)?.body?.message || error?.message || 'Error al enviar');
         }
       } catch (mailErr) {
-        console.error('resend fetch failed', mailErr);
+        console.error('send-email failed', mailErr);
         emailErrMsg = 'el servicio de email no respondió';
       }
 
