@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import {
   Search,
@@ -173,46 +173,54 @@ export default function UserManagement() {
 
     // Filtro por empresa (relación muchos-a-muchos vía company_memberships)
     if (filterCompanies.length > 0) {
-      const selectedCompanyIds = filterCompanies.filter((c) => c !== 'none');
-      const includeNone = filterCompanies.includes('none');
+      try {
+        const selectedCompanyIds = filterCompanies.filter((c) => c !== 'none');
+        const includeNone = filterCompanies.includes('none');
 
-      if (includeNone && selectedCompanyIds.length === 0) {
-        // Solo "Sin empresa": usuarios que NO tienen ninguna membresía
-        const { data: memberRows } = await supabase
-          .from('company_memberships')
-          .select('profile_id');
-        const memberIds = Array.from(new Set(($memberRows || []).map((r: MemberRow) => r.profile_id)));
-        if (memberIds.length > 0) {
-          query = query.not('id', 'in', `(${memberIds.join(',')})`);
-        }
-      } else if (selectedCompanyIds.length > 0 && !includeNone) {
-        // Solo empresas específicas
-        const { data: memberRows } = await supabase
-          .from('company_memberships')
-          .select('profile_id')
-          .in('company_id', selectedCompanyIds);
-        const ids = Array.from(new Set(($memberRows || []).map((r: MemberRow) => r.profile_id)));
-        if (ids.length > 0) {
-          query = query.in('id', `(${ids.join(',')})`);
+        if (includeNone && selectedCompanyIds.length === 0) {
+          // Solo "Sin empresa": usuarios que NO tienen ninguna membresía
+          const { data: memberRows, error: mErr } = await supabase
+            .from('company_memberships')
+            .select('profile_id');
+          if (mErr) throw mErr;
+          const memberIds = Array.from(new Set((memberRows || []).map((r: MemberRow) => r.profile_id)));
+          if (memberIds.length > 0) {
+            query = query.not('id', 'in', `(${memberIds.join(',')})`);
+          }
+        } else if (selectedCompanyIds.length > 0 && !includeNone) {
+          // Solo empresas específicas
+          const { data: memberRows, error: mErr } = await supabase
+            .from('company_memberships')
+            .select('profile_id')
+            .in('company_id', selectedCompanyIds);
+          if (mErr) throw mErr;
+          const ids = Array.from(new Set((memberRows || []).map((r: MemberRow) => r.profile_id)));
+          if (ids.length > 0) {
+            query = query.in('id', `(${ids.join(',')})`);
+          } else {
+            query = query.eq('id', '__no_match__');
+          }
         } else {
-          query = query.eq('id', '__no_match__');
+          // "Sin empresa" + empresas específicas: usuarios en esas empresas O sin empresa
+          // = excluir a los que pertenecen a empresas NO seleccionadas
+          const { data: memberRows, error: mErr } = await supabase
+            .from('company_memberships')
+            .select('profile_id, company_id');
+          if (mErr) throw mErr;
+          const excludedIds = Array.from(
+            new Set(
+              (memberRows || [])
+                .filter((r: MemberRow) => !selectedCompanyIds.includes(r.company_id))
+                .map((r: MemberRow) => r.profile_id)
+            )
+          );
+          if (excludedIds.length > 0) {
+            query = query.not('id', 'in', `(${excludedIds.join(',')})`);
+          }
         }
-      } else {
-        // "Sin empresa" + empresas específicas: usuarios en esas empresas O sin empresa
-        // = excluir a los que pertenecen a empresas NO seleccionadas
-        const { data: memberRows } = await supabase
-          .from('company_memberships')
-          .select('profile_id, company_id');
-        const excludedIds = Array.from(
-          new Set(
-            (memberRows || [])
-              .filter((r: any) => !selectedCompanyIds.includes(r.company_id))
-              .map((r: any) => r.profile_id)
-          )
-        );
-        if (excludedIds.length > 0) {
-          query = query.not('id', 'in', `(${excludedIds.join(',')})`);
-        }
+      } catch (e) {
+        // Si la consulta de membresías falla, continuamos sin filtrar por empresa
+        console.error('Error aplicando filtro de empresa:', e);
       }
     }
 
@@ -640,6 +648,18 @@ export default function UserManagement() {
     }, 300);
     return () => clearTimeout(t);
   }, [searchInput]);
+
+  // Limpia la selección cuando cambian los filtros o la búsqueda, para que el
+  // contador de notificaciones siempre refleje la selección actual (inicia en 0).
+  const firstFilterRun = useRef(true);
+  useEffect(() => {
+    if (firstFilterRun.current) {
+      firstFilterRun.current = false;
+      return;
+    }
+    setSelectedIds([]);
+    setSelectAllActive(false);
+  }, [filterLevel, filterStatus, filterProgram, filterCompanies, searchTerm]);
 
   const filteredUsers = users;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -1171,9 +1191,24 @@ export default function UserManagement() {
             <CardTitle>Estudiantes Invitados ({invitedStudents.length})</CardTitle>
           </CardHeader>
           <CardContent>
-            {invitedStudents.length === 0 ? (
-              <div className="py-6 text-center text-muted-foreground">No hay estudiantes invitados</div>
-            ) : (
+            {(() => {
+              const term = searchTerm.trim().toLowerCase();
+              const visibleInvited = term
+                ? invitedStudents.filter((inv) =>
+                    `${inv.nombre} ${inv.apellido} ${inv.email}`.toLowerCase().includes(term)
+                  )
+                : invitedStudents;
+              if (invitedStudents.length === 0) {
+                return (
+                  <div className="py-6 text-center text-muted-foreground">No hay estudiantes invitados</div>
+                );
+              }
+              if (visibleInvited.length === 0) {
+                return (
+                  <div className="py-6 text-center text-muted-foreground">No hay coincidencias con la búsqueda.</div>
+                );
+              }
+              return (
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -1184,7 +1219,7 @@ export default function UserManagement() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {invitedStudents.map((inv) => (
+                  {visibleInvited.map((inv) => (
                     <TableRow key={inv.id || inv.email}>
                       <TableCell className="font-medium">{inv.nombre}</TableCell>
                       <TableCell>{inv.email}</TableCell>
@@ -1219,8 +1254,8 @@ export default function UserManagement() {
                   ))}
                 </TableBody>
               </Table>
-            )}
-
+              );
+            })()}
           </CardContent>
         </Card>
       )}
