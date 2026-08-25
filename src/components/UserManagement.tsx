@@ -13,13 +13,29 @@ import {
   Check,
   X,
   Download,
-  Eye
+  Eye,
+  Send
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Table,
   TableBody,
@@ -83,6 +99,8 @@ export default function UserManagement() {
   const [filterLevel, setFilterLevel] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterProgram, setFilterProgram] = useState("all");
+  const [filterCompanies, setFilterCompanies] = useState<string[]>([]);
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
   const [programs, setPrograms] = useState<{ id: string; name: string }[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
@@ -112,6 +130,14 @@ export default function UserManagement() {
   const [progressModal, setProgressModal] = useState<StudentProgress | null>(null);
   const [membershipsByUser, setMembershipsByUser] = useState<Record<string, { companyId: string; companyName: string; areaId: string | null; areaName: string | null }>>({});
 
+  // Selección múltiple de usuarios + notificación push
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectAllActive, setSelectAllActive] = useState(false);
+  const [pushDialogOpen, setPushDialogOpen] = useState(false);
+  const [pushTitle, setPushTitle] = useState("");
+  const [pushBody, setPushBody] = useState("");
+  const [pushSending, setPushSending] = useState(false);
+
   const fetchProgress = async () => {
     try {
       const { data, error } = await supabase.rpc("admin_get_students_progress");
@@ -129,6 +155,77 @@ export default function UserManagement() {
     }
   };
 
+  // Construye la query base de perfiles aplicando búsqueda y filtros (sin rango ni select).
+  // Devuelve una query de supabase sobre la tabla `profiles` lista para .select()/.range().
+  type MemberRow = { profile_id: string; company_id?: string };
+  const buildFilteredQuery = async () => {
+    let query = supabase.from('profiles');
+
+    const term = searchTerm.trim();
+    if (term) {
+      const like = `%${term}%`;
+      query = query.or(`name.ilike.${like},last_name.ilike.${like},email.ilike.${like}`);
+    }
+
+    if (filterLevel && filterLevel !== 'all') query = query.eq('nivel_actual', filterLevel);
+    if (filterProgram && filterProgram !== 'all') query = query.eq('program_id', filterProgram);
+    if (filterStatus && filterStatus !== 'all') query = query.eq('status', filterStatus);
+
+    // Filtro por empresa (relación muchos-a-muchos vía company_memberships)
+    if (filterCompanies.length > 0) {
+      const selectedCompanyIds = filterCompanies.filter((c) => c !== 'none');
+      const includeNone = filterCompanies.includes('none');
+
+      if (includeNone && selectedCompanyIds.length === 0) {
+        // Solo "Sin empresa": usuarios que NO tienen ninguna membresía
+        const { data: memberRows } = await supabase
+          .from('company_memberships')
+          .select('profile_id');
+        const memberIds = Array.from(new Set(($memberRows || []).map((r: MemberRow) => r.profile_id)));
+        if (memberIds.length > 0) {
+          query = query.not('id', 'in', `(${memberIds.join(',')})`);
+        }
+      } else if (selectedCompanyIds.length > 0 && !includeNone) {
+        // Solo empresas específicas
+        const { data: memberRows } = await supabase
+          .from('company_memberships')
+          .select('profile_id')
+          .in('company_id', selectedCompanyIds);
+        const ids = Array.from(new Set(($memberRows || []).map((r: MemberRow) => r.profile_id)));
+        if (ids.length > 0) {
+          query = query.in('id', `(${ids.join(',')})`);
+        } else {
+          query = query.eq('id', '__no_match__');
+        }
+      } else {
+        // "Sin empresa" + empresas específicas: usuarios en esas empresas O sin empresa
+        // = excluir a los que pertenecen a empresas NO seleccionadas
+        const { data: memberRows } = await supabase
+          .from('company_memberships')
+          .select('profile_id, company_id');
+        const excludedIds = Array.from(
+          new Set(
+            (memberRows || [])
+              .filter((r: any) => !selectedCompanyIds.includes(r.company_id))
+              .map((r: any) => r.profile_id)
+          )
+        );
+        if (excludedIds.length > 0) {
+          query = query.not('id', 'in', `(${excludedIds.join(',')})`);
+        }
+      }
+    }
+
+    return query;
+  };
+
+  // Devuelve todos los IDs de perfiles que coinciden con los filtros actuales
+  const getFilteredProfileIds = async (): Promise<string[]> => {
+    const base = await buildFilteredQuery();
+    const { data } = await base.select('id');
+    return (data || []).map((r: { id: string }) => String(r.id));
+  };
+
   // Fetch profiles from Supabase with server-side pagination, search and filters
   const fetchUsers = async (opts?: { page?: number }) => {
     setLoading(true);
@@ -137,19 +234,10 @@ export default function UserManagement() {
     const to = from + pageSize - 1;
 
     try {
-      let query = supabase.from('profiles').select('*, programs!program_id(name)', { count: 'exact' }).order('created_at', { ascending: false });
-
-      const term = searchTerm.trim();
-      if (term) {
-        // search across name, last_name and email
-        const like = `%${term}%`;
-        query = query.or(`name.ilike.${like},last_name.ilike.${like},email.ilike.${like}`);
-      }
-
-      if (filterLevel && filterLevel !== 'all') query = query.eq('nivel_actual', filterLevel);
-      if (filterProgram && filterProgram !== 'all') query = query.eq('program_id', filterProgram);
-      if (filterStatus && filterStatus !== 'all') query = query.eq('status', filterStatus);
-
+      const base = await buildFilteredQuery();
+      let query = base
+        .select('*, programs!program_id(name)', { count: 'exact' })
+        .order('created_at', { ascending: false });
       query = query.range(from, to);
 
       const { data, error, count } = await query;
@@ -206,6 +294,92 @@ export default function UserManagement() {
       }
     });
     setMembershipsByUser(map);
+  };
+
+  // Alterna la selección de empresas en el filtro desplegable multi-selección
+  const toggleCompanyFilter = (value: string) => {
+    setSelectAllActive(false);
+    setSelectedIds([]);
+    if (value === 'all') {
+      setFilterCompanies([]);
+      return;
+    }
+    setFilterCompanies((prev) => {
+      if (prev.includes(value)) return prev.filter((v) => v !== value);
+      return [...prev, value];
+    });
+  };
+
+  // Selección de usuarios
+  const isSelected = (id: string) => selectAllActive || selectedIds.includes(id);
+
+  const toggleRowSelection = (id: string) => {
+    setSelectAllActive(false);
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const allPageSelected =
+    users.length > 0 && users.every((u) => isSelected(u.id));
+  const somePageSelected =
+    users.some((u) => isSelected(u.id)) && !allPageSelected;
+
+  const toggleSelectAll = async () => {
+    if (allPageSelected) {
+      // Si la página actual está completamente seleccionada, limpiamos
+      setSelectAllActive(false);
+      setSelectedIds((prev) => prev.filter((id) => !users.some((u) => u.id === id)));
+    } else {
+      // Selecciona TODOS los usuarios filtrados en este momento (todas las páginas)
+      const ids = await getFilteredProfileIds();
+      setSelectedIds(ids);
+      setSelectAllActive(true);
+    }
+  };
+
+  const openPushDialog = () => {
+    if (selectedIds.length === 0) return;
+    setPushTitle("");
+    setPushBody("");
+    setPushDialogOpen(true);
+  };
+
+  const handleSendPush = async () => {
+    if (selectedIds.length === 0) return;
+    if (!pushBody.trim()) {
+      toast({ title: 'Error', description: 'Escribe el contenido de la notificación.', variant: 'destructive' });
+      return;
+    }
+    setPushSending(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-push-notification', {
+        body: {
+          userIds: selectedIds,
+          title: pushTitle.trim() || 'TrueEnglish',
+          body: pushBody.trim(),
+        },
+      });
+      if (error) {
+        console.error('send-push-notification error', error);
+        toast({ title: 'Error', description: error.message || 'No se pudo enviar la notificación.', variant: 'destructive' });
+        return;
+      }
+      const sent = (data as any)?.sent ?? 0;
+      const total = (data as any)?.total ?? selectedIds.length;
+      toast({
+        title: 'Notificación enviada',
+        description: `Se envió la notificación a ${sent} de ${total} dispositivo(s).`,
+      });
+      setPushDialogOpen(false);
+      setSelectedIds([]);
+      setSelectAllActive(false);
+    } catch (err) {
+      console.error('Failed to send push', err);
+      toast({ title: 'Error', description: 'No se pudo enviar la notificación.', variant: 'destructive' });
+    } finally {
+      setPushSending(false);
+    }
   };
 
   const handleCreateUser = () => {
@@ -438,7 +612,7 @@ export default function UserManagement() {
     // also refresh invited students when filters/search change
     fetchInvitedStudents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterLevel, filterStatus, filterProgram, searchTerm, pageSize]);
+  }, [filterLevel, filterStatus, filterProgram, filterCompanies, searchTerm, pageSize]);
 
   // Fetch when page changes
   useEffect(() => {
@@ -452,6 +626,9 @@ export default function UserManagement() {
     fetchProgress();
     supabase.from("programs").select("id, name, active").eq("active", true).order("sort_order").order("name").then(({ data }) => {
       setPrograms((data || []).map((p: any) => ({ id: p.id, name: p.name })));
+    });
+    supabase.from("companies").select("id, name, active").eq("active", true).order("name").then(({ data }) => {
+      setCompanies((data || []).map((c: any) => ({ id: c.id, name: c.name })));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -860,6 +1037,14 @@ export default function UserManagement() {
           <Button variant="outline" onClick={toggleShowInvited}>
             {showInvited ? 'Ocultar Invitados' : 'Ver Invitados'}
           </Button>
+          <Button
+            onClick={openPushDialog}
+            disabled={selectedIds.length === 0}
+            className="bg-primary hover:bg-primary/90"
+          >
+            <Send className="w-4 h-4 mr-2" />
+            Notificación{selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
+          </Button>
         </div>
       </div>
 
@@ -894,6 +1079,65 @@ export default function UserManagement() {
                 <SelectItem value="C2">C2</SelectItem>
               </SelectContent>
             </Select>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-[200px] justify-between" role="combobox">
+                  {filterCompanies.length === 0
+                    ? 'Todas las empresas'
+                    : `Empresas (${filterCompanies.length})`}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[260px] p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="Buscar empresa..." />
+                  <CommandList>
+                    <CommandEmpty>No se encontró.</CommandEmpty>
+                    <CommandGroup>
+                      <CommandItem
+                        onSelect={() => toggleCompanyFilter('all')}
+                        className="cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            checked={filterCompanies.length === 0}
+                            className="pointer-events-none"
+                          />
+                          <span>Todos</span>
+                        </div>
+                      </CommandItem>
+                      <CommandItem
+                        onSelect={() => toggleCompanyFilter('none')}
+                        className="cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            checked={filterCompanies.includes('none')}
+                            className="pointer-events-none"
+                          />
+                          <span>Sin empresa</span>
+                        </div>
+                      </CommandItem>
+                      {companies.map((c) => (
+                        <CommandItem
+                          key={c.id}
+                          value={c.name}
+                          onSelect={() => toggleCompanyFilter(c.id)}
+                          className="cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Checkbox
+                              checked={filterCompanies.includes(c.id)}
+                              className="pointer-events-none"
+                            />
+                            <span>{c.name}</span>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
             <Select value={filterProgram} onValueChange={setFilterProgram}>
               <SelectTrigger className="w-[170px]">
                 <SelectValue placeholder="Línea" />
@@ -990,6 +1234,13 @@ export default function UserManagement() {
           <Table className="min-w-[1050px]">
             <TableHeader>
               <TableRow>
+                <TableHead className="w-[40px]">
+                  <Checkbox
+                    checked={allPageSelected ? true : somePageSelected ? "indeterminate" : false}
+                    onCheckedChange={toggleSelectAll}
+                    aria-label="Seleccionar todos los usuarios filtrados"
+                  />
+                </TableHead>
                 <TableHead className="whitespace-nowrap">Nombre</TableHead>
                 <TableHead className="whitespace-nowrap">Apellido</TableHead>
                 <TableHead className="whitespace-nowrap">Email</TableHead>
@@ -1009,6 +1260,13 @@ export default function UserManagement() {
                 const prog = progressById[user.id];
                 return (
                 <TableRow key={user.id}>
+                  <TableCell className="w-[40px]">
+                    <Checkbox
+                      checked={isSelected(user.id)}
+                      onCheckedChange={() => toggleRowSelection(user.id)}
+                      aria-label={`Seleccionar ${user.nombre} ${user.apellido}`}
+                    />
+                  </TableCell>
                   <TableCell className="font-medium whitespace-nowrap">{user.nombre}</TableCell>
                   <TableCell className="whitespace-nowrap">{user.apellido}</TableCell>
                   <TableCell className="whitespace-nowrap">{user.email}</TableCell>
@@ -1230,6 +1488,69 @@ export default function UserManagement() {
       </Dialog>
 
       {/* resend confirmation removed - resending shows a toast immediately */}
+
+      {/* Push notification dialog */}
+      <Dialog open={pushDialogOpen} onOpenChange={(o) => { if (!pushSending) setPushDialogOpen(o); }}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Enviar notificación push</DialogTitle>
+            <DialogDescription>
+              {selectedIds.length > 0
+                ? `Se enviará la notificación a ${selectedIds.length} usuario(s) seleccionado(s).`
+                : 'No hay usuarios seleccionados.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <label htmlFor="push-title" className="text-sm font-medium">
+                Título (opcional)
+              </label>
+              <Input
+                id="push-title"
+                value={pushTitle}
+                onChange={(e) => setPushTitle(e.target.value)}
+                placeholder="TrueEnglish"
+                disabled={pushSending}
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="push-body" className="text-sm font-medium">
+                Cuerpo del mensaje
+              </label>
+              <Textarea
+                id="push-body"
+                value={pushBody}
+                onChange={(e) => setPushBody(e.target.value)}
+                placeholder="Escribe el contenido de la notificación..."
+                rows={5}
+                disabled={pushSending}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPushDialogOpen(false)} disabled={pushSending}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleSendPush}
+              disabled={pushSending || !pushBody.trim() || selectedIds.length === 0}
+              className={pushSending || !pushBody.trim() || selectedIds.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}
+            >
+              {pushSending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Enviando...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 mr-2" />
+                  Enviar notificación
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <DeleteConfirmationDialog
         isOpen={deleteDialog.isOpen}
