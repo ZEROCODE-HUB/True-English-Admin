@@ -57,6 +57,19 @@ serve(async (req) => {
       );
     }
 
+    // Cliente con service_role para leer los tokens de TODOS los usuarios
+    // seleccionados, sin que RLS (profiles/push_tokens) filtre las filas de
+    // otros usuarios. Si no está configurada la variable, se usa el cliente
+    // autenticado del admin como respaldo.
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const db = serviceKey
+      ? createClient(
+          Deno.env.get("SUPABASE_URL") ?? "",
+          serviceKey,
+          { auth: { persistSession: false } }
+        )
+      : sb;
+
     const body = await req.json().catch(() => null);
     if (!body) {
       return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
@@ -91,10 +104,11 @@ serve(async (req) => {
     const tokens = new Set<string>();
 
     try {
-      const { data: tokenRows } = await sb
+      const { data: tokenRows, error: tkErr } = await db
         .from("push_tokens")
         .select("token")
         .in("profile_id", userIds);
+      if (tkErr) console.warn("push_tokens query failed:", tkErr);
       (tokenRows || []).forEach((r: any) => {
         if (r?.token) tokens.add(String(r.token));
       });
@@ -103,10 +117,11 @@ serve(async (req) => {
     }
 
     try {
-      const { data: profileRows } = await sb
+      const { data: profileRows, error: prErr } = await db
         .from("profiles")
         .select("expo_push_token")
         .in("id", userIds);
+      if (prErr) console.warn("profiles.expo_push_token query failed:", prErr);
       (profileRows || []).forEach((r: any) => {
         if (r?.expo_push_token) tokens.add(String(r.expo_push_token));
       });

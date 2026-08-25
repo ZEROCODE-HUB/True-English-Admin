@@ -384,23 +384,27 @@ export default function UserManagement() {
     }
     setPushSending(true);
     try {
-      const { data, error } = await supabase.functions.invoke('send-push-notification', {
+      // La app móvil usa OneSignal (no Expo Push). Se invoca la Edge Function
+      // `send-notification`, que envía vía OneSignal usando los user.id de
+      // Supabase como external_user_ids (asociados en OneSignal.login).
+      const { data, error } = await supabase.functions.invoke('send-notification', {
         body: {
-          userIds: selectedIds,
-          title: pushTitle.trim() || 'TrueEnglish',
-          body: pushBody.trim(),
+          headings: { en: pushTitle.trim() || 'TrueEnglish' },
+          contents: { en: pushBody.trim() },
+          include_external_user_ids: selectedIds,
         },
       });
       if (error) {
-        console.error('send-push-notification error', error);
+        console.error('send-notification error', error);
         toast({ title: 'Error', description: error.message || 'No se pudo enviar la notificación.', variant: 'destructive' });
         return;
       }
-      const sent = (data as any)?.sent ?? 0;
-      const total = (data as any)?.total ?? selectedIds.length;
+      const recipients = (data as any)?.body?.recipients ?? 0;
+      const okRes = (data as any)?.ok ?? false;
       toast({
-        title: 'Notificación enviada',
-        description: `Se envió la notificación a ${sent} de ${total} dispositivo(s).`,
+        title: okRes ? 'Notificación enviada' : 'Notificación enviada',
+        description: `Se envió la notificación a ${recipients} dispositivo(s) de ${selectedIds.length} usuario(s) seleccionado(s).`,
+        variant: okRes ? 'default' : 'destructive',
       });
       setPushDialogOpen(false);
       setSelectedIds([]);
