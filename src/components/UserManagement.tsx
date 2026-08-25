@@ -657,7 +657,7 @@ export default function UserManagement() {
                     <div style="font-size:42px;font-weight:700;letter-spacing:12px;color:#015ea8;font-family:monospace;">${insertObj.code}</div>
                   </div>
                   <p style="font-size:15px;color:#334155;line-height:1.5;margin:0 0 20px;">Descárgala aquí:</p>
-                  <p style="display:flex;gap:10px;margin:0 0 24px;">
+                  <p style="display:flex;gap:20px;margin:0 0 24px;">
                     <a href="${iosLink}" style="display:inline-block;padding:10px 14px;background:#015ea8;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">App Store (iOS)</a>
                     <a href="${androidLink}" style="display:inline-block;padding:10px 14px;background:#0a66c2;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Google Play (Android)</a>
                   </p>
@@ -766,7 +766,7 @@ export default function UserManagement() {
                     <div style="font-size:42px;font-weight:700;letter-spacing:12px;color:#015ea8;font-family:monospace;">${code}</div>
                   </div>
                   <p style="font-size:15px;color:#334155;line-height:1.5;margin:0 0 20px;">Descárgala aquí:</p>
-                  <p style="display:flex;gap:10px;margin:0 0 24px;">
+                  <p style="display:flex;gap:20px;margin:0 0 24px;">
                     <a href="${iosLink}" style="display:inline-block;padding:10px 14px;background:#015ea8;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">App Store (iOS)</a>
                     <a href="${androidLink}" style="display:inline-block;padding:10px 14px;background:#0a66c2;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Google Play (Android)</a>
                   </p>
