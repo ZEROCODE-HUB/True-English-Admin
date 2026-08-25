@@ -162,7 +162,7 @@ export default function UserManagement() {
   // Calcula el filtro de empresa a partir de la selección actual.
   // Separado y async para no tener que devolver el builder desde una función async
   // (PostgrestBuilder es thenable y una función async lo "desenvuelve" al resolver).
-  type CompanyFilter = { mode: 'in' | 'notIn'; ids: string[] } | null;
+  type CompanyFilter = { mode: 'in' | 'notIn'; ids: string[]; empty?: boolean } | null;
   const getCompanyFilter = async (): Promise<CompanyFilter> => {
     if (filterCompanies.length === 0) return null;
     const selectedCompanyIds = filterCompanies.filter((c) => c !== 'none');
@@ -184,7 +184,7 @@ export default function UserManagement() {
           .in('company_id', selectedCompanyIds);
         if (mErr) throw mErr;
         const ids = Array.from(new Set((memberRows || []).map((r: MemberRow) => r.profile_id)));
-        return { mode: 'in', ids };
+        return { mode: 'in', ids, empty: ids.length === 0 };
       } else {
         // "Sin empresa" + empresas específicas: usuarios en esas empresas O sin empresa
         // = excluir a los que pertenecen a empresas NO seleccionadas
@@ -235,8 +235,9 @@ export default function UserManagement() {
           ? query.in('id', companyFilter.ids)
           : query.not('id', 'in', companyFilter.ids);
       } else if (companyFilter.mode === 'in') {
-        // Empresas específicas seleccionadas pero ningún usuario las tiene
-        query = query.eq('id', '__no_match__');
+        // Empresas específicas seleccionadas pero ningún usuario las tiene:
+        // usamos un UUID imposible (válido) para no disparar un error de parseo.
+        query = query.eq('id', '00000000-0000-0000-0000-000000000000');
       }
     }
 
@@ -246,6 +247,7 @@ export default function UserManagement() {
   // Devuelve todos los IDs de perfiles que coinciden con los filtros actuales
   const getFilteredProfileIds = async (): Promise<string[]> => {
     const companyFilter = await getCompanyFilter();
+    if (companyFilter?.empty) return [];
     const query = buildFilteredQuery('id', undefined, companyFilter);
     const { data } = await query;
     return (data || []).map((r: { id: string }) => String(r.id));
@@ -260,6 +262,12 @@ export default function UserManagement() {
 
     try {
       const companyFilter = await getCompanyFilter();
+      if (companyFilter?.empty) {
+        setUsers([]);
+        setTotal(0);
+        setLoading(false);
+        return;
+      }
       let query = buildFilteredQuery('*, programs!program_id(name)', 'exact', companyFilter);
       query = query.order('created_at', { ascending: false }).range(from, to);
 
