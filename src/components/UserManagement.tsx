@@ -14,7 +14,8 @@ import {
   X,
   Download,
   Eye,
-  Send
+  Send,
+  ChevronDown
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -158,10 +159,64 @@ export default function UserManagement() {
   // Construye la query base de perfiles aplicando búsqueda y filtros (sin rango ni select).
   // Devuelve una query de supabase sobre la tabla `profiles` lista para .select()/.range().
   type MemberRow = { profile_id: string; company_id?: string };
+  // Calcula el filtro de empresa a partir de la selección actual.
+  // Separado y async para no tener que devolver el builder desde una función async
+  // (PostgrestBuilder es thenable y una función async lo "desenvuelve" al resolver).
+  type CompanyFilter = { mode: 'in' | 'notIn'; ids: string[] } | null;
+  const getCompanyFilter = async (): Promise<CompanyFilter> => {
+    if (filterCompanies.length === 0) return null;
+    const selectedCompanyIds = filterCompanies.filter((c) => c !== 'none');
+    const includeNone = filterCompanies.includes('none');
+    try {
+      if (includeNone && selectedCompanyIds.length === 0) {
+        // Solo "Sin empresa": usuarios que NO tienen ninguna membresía
+        const { data: memberRows, error: mErr } = await supabase
+          .from('company_memberships')
+          .select('profile_id');
+        if (mErr) throw mErr;
+        const ids = Array.from(new Set((memberRows || []).map((r: MemberRow) => r.profile_id)));
+        return { mode: 'notIn', ids };
+      } else if (selectedCompanyIds.length > 0 && !includeNone) {
+        // Solo empresas específicas
+        const { data: memberRows, error: mErr } = await supabase
+          .from('company_memberships')
+          .select('profile_id')
+          .in('company_id', selectedCompanyIds);
+        if (mErr) throw mErr;
+        const ids = Array.from(new Set((memberRows || []).map((r: MemberRow) => r.profile_id)));
+        return { mode: 'in', ids };
+      } else {
+        // "Sin empresa" + empresas específicas: usuarios en esas empresas O sin empresa
+        // = excluir a los que pertenecen a empresas NO seleccionadas
+        const { data: memberRows, error: mErr } = await supabase
+          .from('company_memberships')
+          .select('profile_id, company_id');
+        if (mErr) throw mErr;
+        const excludedIds = Array.from(
+          new Set(
+            (memberRows || [])
+              .filter((r: MemberRow) => !selectedCompanyIds.includes(r.company_id))
+              .map((r: MemberRow) => r.profile_id)
+          )
+        );
+        return { mode: 'notIn', ids: excludedIds };
+      }
+    } catch (e) {
+      // Si la consulta de membresías falla, continuamos sin filtrar por empresa
+      console.error('Error aplicando filtro de empresa:', e);
+      return null;
+    }
+  };
+
   // Construye la query de perfiles aplicando búsqueda y filtros.
   // IMPORTANTE: los métodos de filtro (.or/.eq/.in/.not) solo existen en el
   // builder DESPUÉS de llamar a .select(), por eso se hace .select() primero.
-  const buildFilteredQuery = async (selectStr: string, count?: 'exact') => {
+  // Esta función es SÍNCRONA: devuelve el builder directamente (no desde async).
+  const buildFilteredQuery = (
+    selectStr: string,
+    count?: 'exact',
+    companyFilter?: CompanyFilter
+  ) => {
     let query = supabase.from('profiles').select(selectStr, count ? { count } : undefined);
 
     const term = searchTerm.trim();
@@ -174,56 +229,14 @@ export default function UserManagement() {
     if (filterProgram && filterProgram !== 'all') query = query.eq('program_id', filterProgram);
     if (filterStatus && filterStatus !== 'all') query = query.eq('status', filterStatus);
 
-    // Filtro por empresa (relación muchos-a-muchos vía company_memberships)
-    if (filterCompanies.length > 0) {
-      try {
-        const selectedCompanyIds = filterCompanies.filter((c) => c !== 'none');
-        const includeNone = filterCompanies.includes('none');
-
-        if (includeNone && selectedCompanyIds.length === 0) {
-          // Solo "Sin empresa": usuarios que NO tienen ninguna membresía
-          const { data: memberRows, error: mErr } = await supabase
-            .from('company_memberships')
-            .select('profile_id');
-          if (mErr) throw mErr;
-          const memberIds = Array.from(new Set((memberRows || []).map((r: MemberRow) => r.profile_id)));
-          if (memberIds.length > 0) {
-            query = query.not('id', 'in', memberIds);
-          }
-        } else if (selectedCompanyIds.length > 0 && !includeNone) {
-          // Solo empresas específicas
-          const { data: memberRows, error: mErr } = await supabase
-            .from('company_memberships')
-            .select('profile_id')
-            .in('company_id', selectedCompanyIds);
-          if (mErr) throw mErr;
-          const ids = Array.from(new Set((memberRows || []).map((r: MemberRow) => r.profile_id)));
-          if (ids.length > 0) {
-            query = query.in('id', ids);
-          } else {
-            query = query.eq('id', '__no_match__');
-          }
-        } else {
-          // "Sin empresa" + empresas específicas: usuarios en esas empresas O sin empresa
-          // = excluir a los que pertenecen a empresas NO seleccionadas
-          const { data: memberRows, error: mErr } = await supabase
-            .from('company_memberships')
-            .select('profile_id, company_id');
-          if (mErr) throw mErr;
-          const excludedIds = Array.from(
-            new Set(
-              (memberRows || [])
-                .filter((r: MemberRow) => !selectedCompanyIds.includes(r.company_id))
-                .map((r: MemberRow) => r.profile_id)
-            )
-          );
-          if (excludedIds.length > 0) {
-            query = query.not('id', 'in', excludedIds);
-          }
-        }
-      } catch (e) {
-        // Si la consulta de membresías falla, continuamos sin filtrar por empresa
-        console.error('Error aplicando filtro de empresa:', e);
+    if (companyFilter) {
+      if (companyFilter.ids.length > 0) {
+        query = companyFilter.mode === 'in'
+          ? query.in('id', companyFilter.ids)
+          : query.not('id', 'in', companyFilter.ids);
+      } else if (companyFilter.mode === 'in') {
+        // Empresas específicas seleccionadas pero ningún usuario las tiene
+        query = query.eq('id', '__no_match__');
       }
     }
 
@@ -232,7 +245,8 @@ export default function UserManagement() {
 
   // Devuelve todos los IDs de perfiles que coinciden con los filtros actuales
   const getFilteredProfileIds = async (): Promise<string[]> => {
-    const query = await buildFilteredQuery('id');
+    const companyFilter = await getCompanyFilter();
+    const query = buildFilteredQuery('id', undefined, companyFilter);
     const { data } = await query;
     return (data || []).map((r: { id: string }) => String(r.id));
   };
@@ -245,7 +259,8 @@ export default function UserManagement() {
     const to = from + pageSize - 1;
 
     try {
-      let query = await buildFilteredQuery('*, programs!program_id(name)', 'exact');
+      const companyFilter = await getCompanyFilter();
+      let query = buildFilteredQuery('*, programs!program_id(name)', 'exact', companyFilter);
       query = query.order('created_at', { ascending: false }).range(from, to);
 
       const { data, error, count } = await query;
@@ -1101,10 +1116,13 @@ export default function UserManagement() {
             </Select>
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="outline" className="w-[200px] justify-between" role="combobox">
-                  {filterCompanies.length === 0
-                    ? 'Todas las empresas'
-                    : `Empresas (${filterCompanies.length})`}
+                <Button variant="outline" className="w-[200px] justify-between font-normal" role="combobox">
+                  <span className="truncate">
+                    {filterCompanies.length === 0
+                      ? 'Todas las empresas'
+                      : `Empresas (${filterCompanies.length})`}
+                  </span>
+                  <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-[260px] p-0" align="start">
@@ -1191,23 +1209,32 @@ export default function UserManagement() {
             <CardTitle>Estudiantes Invitados ({invitedStudents.length})</CardTitle>
           </CardHeader>
           <CardContent>
-            {(() => {
-              const term = searchTerm.trim().toLowerCase();
-              const visibleInvited = term
-                ? invitedStudents.filter((inv) =>
+              {(() => {
+                const term = searchTerm.trim().toLowerCase();
+                let visibleInvited = invitedStudents;
+                if (term) {
+                  visibleInvited = visibleInvited.filter((inv) =>
                     `${inv.nombre} ${inv.apellido} ${inv.email}`.toLowerCase().includes(term)
-                  )
-                : invitedStudents;
-              if (invitedStudents.length === 0) {
-                return (
-                  <div className="py-6 text-center text-muted-foreground">No hay estudiantes invitados</div>
-                );
-              }
-              if (visibleInvited.length === 0) {
-                return (
-                  <div className="py-6 text-center text-muted-foreground">No hay coincidencias con la búsqueda.</div>
-                );
-              }
+                  );
+                }
+                if (filterLevel && filterLevel !== 'all') {
+                  visibleInvited = visibleInvited.filter(
+                    (inv) => (inv.nivelActual ?? '').toUpperCase() === filterLevel
+                  );
+                }
+                if (filterStatus && filterStatus !== 'all') {
+                  visibleInvited = visibleInvited.filter((inv) => (inv.estado ?? '') === filterStatus);
+                }
+                if (invitedStudents.length === 0) {
+                  return (
+                    <div className="py-6 text-center text-muted-foreground">No hay estudiantes invitados</div>
+                  );
+                }
+                if (visibleInvited.length === 0) {
+                  return (
+                    <div className="py-6 text-center text-muted-foreground">No hay coincidencias con los filtros.</div>
+                  );
+                }
               return (
               <Table>
                 <TableHeader>
