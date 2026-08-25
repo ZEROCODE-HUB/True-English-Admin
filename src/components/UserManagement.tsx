@@ -636,8 +636,8 @@ export default function UserManagement() {
         return;
       }
 
-      const iosLink = "https://apps.apple.com/app/idYOUR_IOS_APP_ID";
-      const androidLink = "https://play.google.com/store/apps/details?id=YOUR_ANDROID_PACKAGE";
+      const iosLink = "https://apps.apple.com/pe/app/true-english/id6773120098";
+      const androidLink = "https://play.google.com/store/apps/details?id=com.trueenglish";
 
       const html = `
         <div style="margin:0;padding:0;background:#f3f6f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0b2540;">
@@ -745,8 +745,8 @@ export default function UserManagement() {
         return;
       }
 
-      const iosLink = "https://apps.apple.com/app/idYOUR_IOS_APP_ID";
-      const androidLink = "https://play.google.com/store/apps/details?id=YOUR_ANDROID_PACKAGE";
+      const iosLink = "https://apps.apple.com/pe/app/true-english/id6773120098";
+      const androidLink = "https://play.google.com/store/apps/details?id=com.trueenglish";
 
       const html = `
         <div style="margin:0;padding:0;background:#f3f6f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0b2540;">
