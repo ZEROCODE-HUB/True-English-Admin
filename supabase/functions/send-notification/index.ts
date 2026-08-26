@@ -133,28 +133,39 @@ serve(async (req) => {
       }
       const recipients = (json && json.recipients) ?? 0;
 
-      // Diagnóstico cuando no hay destinatarios: consultar OneSignal para
-      // saber si existen dispositivos y cuántos tienen external_user_id seteado.
-      let diagnostic: Record<string, unknown> | undefined;
-      if (recipients === 0) {
+      const secretAppId = Deno.env.get("ONESIGNAL_APP_ID");
+      console.log("[diag] appId(resolved)=", appId, "secretAppId=", secretAppId);
+
+      const countPlayers = async (aid: string) => {
         try {
-          const playersRes = await fetch(
-            `https://onesignal.com/api/v1/players?app_id=${appId}&limit=100`,
+          const pr = await fetch(
+            `https://onesignal.com/api/v1/players?app_id=${aid}&limit=100`,
             { method: "GET", headers: { Authorization: auth } }
           );
-          const playersJson = await playersRes.json().catch(() => null);
-          const players = (playersJson && playersJson.players) || [];
+          const pj = await pr.json().catch(() => null);
+          const players = (pj && pj.players) || [];
           const withExt = players.filter((p: any) => p && p.external_user_id).length;
-          diagnostic = {
-            app_id: appId,
-            total_devices: playersJson?.total_count ?? players.length,
-            devices_with_external_user_id: withExt,
-            requested_ids: include_external_user_ids,
-          };
+          return { total: pj?.total_count ?? players.length, withExt };
         } catch (e) {
-          diagnostic = { error: String(e) };
+          return { total: -1, withExt: -1, err: String(e) };
+        }
+      };
+
+      const diagnostic: Record<string, unknown> = {
+        app_id: appId,
+        requested_ids: include_external_user_ids,
+      };
+      if (recipients === 0) {
+        const a = await countPlayers(appId);
+        diagnostic.resolved_app_total = a.total;
+        diagnostic.resolved_app_with_ext = a.withExt;
+        if (secretAppId && secretAppId !== appId) {
+          const b = await countPlayers(secretAppId);
+          diagnostic.secret_app_total = b.total;
+          diagnostic.secret_app_with_ext = b.withExt;
         }
       }
+      console.log("[diag] result=", JSON.stringify(diagnostic));
 
       return new Response(
         JSON.stringify({ ok: true, body: { recipients, diagnostic } }),

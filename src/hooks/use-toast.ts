@@ -140,6 +140,17 @@ function dispatch(action: Action) {
 type Toast = Omit<ToasterToast, "id">
 
 function toast({ ...props }: Toast) {
+  // No renderizar las notificaciones de error (variant="destructive"): el usuario
+  // pidió ocultar esas cajas rojas en el administrador. Se mantienen los demás.
+  if (props.variant === "destructive") {
+    const stubId = genId()
+    return {
+      id: stubId,
+      dismiss: () => {},
+      update: () => {},
+    }
+  }
+
   const id = genId()
 
   const update = (props: ToasterToast) =>
