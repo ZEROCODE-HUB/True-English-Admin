@@ -82,10 +82,24 @@ serve(async (req) => {
       );
     }
 
-    const appId = Deno.env.get("ONESIGNAL_APP_ID");
+    // Resolver el OneSignal App ID EXACTAMENTE como el móvil: primero la tabla
+    // `app_config` (key 'onesignal_app_id') y, si no existe, el valor por defecto
+    // hardcodeado. Así el admin envía a la MISMA app donde el móvil registra los
+    // dispositivos (si usáramos el secret ONESIGNAL_APP_ID podríamos apuntar a otra app).
+    let appId = "d4b458c5-4f94-4352-9d9c-47242d04b61a";
+    try {
+      const { data: cfg } = await sb
+        .from("app_config")
+        .select("value")
+        .eq("key", "onesignal_app_id")
+        .maybeSingle();
+      if (cfg?.value) appId = String(cfg.value);
+    } catch {
+      // app_config puede no existir aún; usar el fallback
+    }
     const apiKey = Deno.env.get("ONESIGNAL_API_KEY");
-    if (!appId || !apiKey) {
-      return new Response(JSON.stringify({ ok: false, error: "OneSignal no configurado" }), {
+    if (!apiKey) {
+      return new Response(JSON.stringify({ ok: false, error: "OneSignal no configurado (API key)" }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -118,8 +132,32 @@ serve(async (req) => {
         );
       }
       const recipients = (json && json.recipients) ?? 0;
+
+      // Diagnóstico cuando no hay destinatarios: consultar OneSignal para
+      // saber si existen dispositivos y cuántos tienen external_user_id seteado.
+      let diagnostic: Record<string, unknown> | undefined;
+      if (recipients === 0) {
+        try {
+          const playersRes = await fetch(
+            `https://onesignal.com/api/v1/players?app_id=${appId}&limit=100`,
+            { method: "GET", headers: { Authorization: auth } }
+          );
+          const playersJson = await playersRes.json().catch(() => null);
+          const players = (playersJson && playersJson.players) || [];
+          const withExt = players.filter((p: any) => p && p.external_user_id).length;
+          diagnostic = {
+            app_id: appId,
+            total_devices: playersJson?.total_count ?? players.length,
+            devices_with_external_user_id: withExt,
+            requested_ids: include_external_user_ids,
+          };
+        } catch (e) {
+          diagnostic = { error: String(e) };
+        }
+      }
+
       return new Response(
-        JSON.stringify({ ok: true, body: { recipients } }),
+        JSON.stringify({ ok: true, body: { recipients, diagnostic } }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     } catch (e) {

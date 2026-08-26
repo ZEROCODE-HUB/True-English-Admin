@@ -401,10 +401,15 @@ export default function UserManagement() {
       }
       const recipients = (data as any)?.body?.recipients ?? 0;
       const okRes = (data as any)?.ok ?? false;
+      const diagnostic = (data as any)?.body?.diagnostic;
+      let description = `Se envió la notificación a ${recipients} dispositivo(s) de ${selectedIds.length} usuario(s) seleccionado(s).`;
+      if (recipients === 0 && diagnostic) {
+        description = `No se encontraron dispositivos. OneSignal: ${diagnostic.total_devices ?? 0} dispositivo(s) en total, ${diagnostic.devices_with_external_user_id ?? 0} con external_user_id seteado. El móvil debe registrar el dispositivo con OneSignal.login(<id de supabase del usuario>).`;
+      }
       toast({
         title: okRes ? 'Notificación enviada' : 'Notificación enviada',
-        description: `Se envió la notificación a ${recipients} dispositivo(s) de ${selectedIds.length} usuario(s) seleccionado(s).`,
-        variant: okRes ? 'default' : 'destructive',
+        description,
+        variant: okRes && recipients > 0 ? 'default' : 'destructive',
       });
       setPushDialogOpen(false);
       setSelectedIds([]);
